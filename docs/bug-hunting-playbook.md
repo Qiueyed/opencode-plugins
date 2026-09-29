@@ -44,6 +44,10 @@
 - Hostile-value batteries live in `tests/fuzz/` (runner.mjs): source-slice eval with shadowed Date for pure logic (notify window math: 23 cases incl midnight-crossing, wrap-around weeks, year boundaries, NaN hours) + subprocess batteries with overridden HOME for click-executed CLIs (16 cases). Pattern: bounded corpora, isolated env, assert no-throw + bounded time + sandbox isolation. Add a battery when touching pure-logic code with no coverage.
 ## Clustered-fix rule
 - One instance of a bug class means more exist: when a bug is confirmed, immediately sweep the whole class (`require(` in ESM, root-path refs, `copyFileSync(packed, ASAR)`, version-pinned chunk paths, `catch {}` around writes) across every consumer directory, not just the file that showed symptoms.
+## Upstream-first
+- Generic language checks defer to the established tools when available: shellcheck (shell - SC-series), semgrep (custom pattern rules), typescript-eslint (no-require-imports, no-empty), yamllint/actionlint/jq. Install before hand-writing greps for what they already cover.
+- class-sweep.sh keeps only PROJECT-SPECIFIC contracts no generic tool can know (state paths, marker pairing, registry validity, per-patcher gates) + glue that runs the upstream tools when installed.
+- Canonical references: github.com/koalaman/shellcheck, semgrep.dev/registry, typescript-eslint.io/rules.
 ## Dangerous-areas ranking (where to hunt first)
 1. `catch {}` around feature writes - silent, untestable by typecheck.
 2. Multi-instance contracts (marker files, registries, symlinked paths, repo/local twins) - every consumer is a failure point.
