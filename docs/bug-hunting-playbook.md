@@ -47,6 +47,16 @@
 - Hostile-value batteries live in `tests/fuzz/` (runner.mjs): source-slice eval with shadowed Date for pure logic (notify window math: 23 cases incl midnight-crossing, wrap-around weeks, year boundaries, NaN hours) + subprocess batteries with overridden HOME for click-executed CLIs (16 cases). Pattern: bounded corpora, isolated env, assert no-throw + bounded time + sandbox isolation. Add a battery when touching pure-logic code with no coverage.
 ## Clustered-fix rule
 - One instance of a bug class means more exist: when a bug is confirmed, immediately sweep the whole class (`require(` in ESM, root-path refs, `copyFileSync(packed, ASAR)`, version-pinned chunk paths, `catch {}` around writes) across every consumer directory, not just the file that showed symptoms.
+## Fixed-bug reporting (mandatory, user directive)
+- EVERY fixed bug: (1) regression lock - encode the fault as a permanent assertion or battery case; (2) CHANGELOG.md entry in the publishing session; (3) a new playbook class here if it was novel. A fix without all three will regress.
+- CHANGELOG.md refreshes every publishing session (periodic, not per-fix).
+## GDScript (.gd) - Godot projects (scanner: tools/gd-sweep.sh <project>)
+- yield is dead in Godot 4 (match statements only); export var is 3.x (use @export). Strip comments before matching - domain jargon in comments false-positives the keyword scan (planetary-defense: 10 "yield set" comments).
+- Integer division truncates silently; float == on literals is a trap (12 in planetary-defense).
+- randi() % n biases the distribution (4 instances in World.gd) - use randi_range() or randf().
+- String get_node("A/B") paths break on scene renames - prefer %UniqueName (6 instances).
+- Physics bodies belong in _physics_process, not _process (38 _process defs in planetary-defense - mostly fine for non-physics sim logic, check case by case).
+- connect() returns an Error: check it and disconnect on free (205 connect sites in planetary-defense).
 ## Upstream-first
 - Generic language checks defer to the established tools when available: shellcheck (shell - SC-series), semgrep (custom pattern rules), typescript-eslint (no-require-imports, no-empty), yamllint/actionlint/jq. Install before hand-writing greps for what they already cover.
 - class-sweep.sh keeps only PROJECT-SPECIFIC contracts no generic tool can know (state paths, marker pairing, registry validity, per-patcher gates) + glue that runs the upstream tools when installed.
