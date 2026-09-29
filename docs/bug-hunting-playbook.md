@@ -39,6 +39,9 @@
 - JSONC vs JSON: opencode tolerates trailing commas, python json.load does not - normalize before scripting edits against opencode.jsonc.
 - Error dialects: the same TypeError prints differently under Bun CLI vs Node server - grep BOTH patterns when hunting.
 - Source: engineering-lessons.md (Injected Code & Artifact Patching, Testing Methodology, Cross-Stack Pitfalls sections), file-handling-safety.md (encoding/Unicode byte traps), references/ai-collaboration-governance.md (narratives).
+## OFFLOAD PRINCIPLE (user directive)
+- The AI builds and fixes; the MACHINERY verifies. Never assign a mechanical check to the model when a gate can run it: gate.ts (session.idle) owns shellcheck/tsc/class-sweep triggers, the janitor owns close-time maintenance, run-all.mjs owns the fuzz suite.
+- The playbook\x27s manual sweep instructions are FALLBACKS (debugging feedback, or when a gate is missing) - not the AI\x27s standing duty.
 ## Automation (run this, do not re-derive by hand)
 - `tools/class-sweep.sh` encodes every static sweep: bare require in ESM, stale root paths (all spellings), version-pinned chunk paths, non-atomic asar writes, per-patcher syntax/parse-back gates, registry validity. Exit 1 on any hit; run after ANY multi-file edit or migration; also in the repo at tools/class-sweep.sh.
 - Hostile-value batteries live in `tests/fuzz/` (runner.mjs): source-slice eval with shadowed Date for pure logic (notify window math: 23 cases incl midnight-crossing, wrap-around weeks, year boundaries, NaN hours) + subprocess batteries with overridden HOME for click-executed CLIs (16 cases). Pattern: bounded corpora, isolated env, assert no-throw + bounded time + sandbox isolation. Add a battery when touching pure-logic code with no coverage.
@@ -48,6 +51,10 @@
 - Generic language checks defer to the established tools when available: shellcheck (shell - SC-series), semgrep (custom pattern rules), typescript-eslint (no-require-imports, no-empty), yamllint/actionlint/jq. Install before hand-writing greps for what they already cover.
 - class-sweep.sh keeps only PROJECT-SPECIFIC contracts no generic tool can know (state paths, marker pairing, registry validity, per-patcher gates) + glue that runs the upstream tools when installed.
 - Canonical references: github.com/koalaman/shellcheck, semgrep.dev/registry, typescript-eslint.io/rules.
+- END-OF-MESSAGE RITUAL: if any shell file (.sh/.zsh/bash) was touched or mentioned this turn, run `shellcheck -S warning <files>` UNFILTERED before ending the message; style notes do not fail, warnings do.
+- MECHANICAL LAYER: plugins/gate.ts runs shellcheck on touched shell files at every session.idle regardless of model compliance (instruction layer and plugin layer are independent; the plugin toasts findings, silence = clean).
+- BUG HUNTS OPEN WITH THE UPSTREAM TOOL: shellcheck (or semgrep/eslint for TS) runs FIRST on the suspected files, hand-greps second. The generic tool sees what project greps structurally cannot (proven 2026-09-29: 8 findings my sweeps had passed).
+- The layers stack, none is vain: shellcheck/semgrep own generic language correctness; class-sweep owns project contracts no generic tool can know (marker pairing, state paths, registry validity).
 ## Dangerous-areas ranking (where to hunt first)
 1. `catch {}` around feature writes - silent, untestable by typecheck.
 2. Multi-instance contracts (marker files, registries, symlinked paths, repo/local twins) - every consumer is a failure point.

@@ -46,8 +46,11 @@ if stale:
 print("ok   registry: valid JSON, no stale stateFile")
 PY
 # Class 7: injected-block markers must pair open+end in the SHIPPED bundle
+# (slow: full asar extract - skipped when GATE_FAST=1; run full at least at close time)
 ASAR="/Applications/OpenCode.app/Contents/Resources/app.asar"
-if [ -f "$ASAR" ] && command -v npx >/dev/null; then
+if [ "${GATE_FAST:-0}" = "1" ]; then
+  say "skip marker pairing (GATE_FAST=1)"
+elif [ -f "$ASAR" ] && command -v npx >/dev/null; then
   TMPD=$(mktemp -d)
   if npx --yes @electron/asar extract "$ASAR" "$TMPD" >/dev/null 2>&1; then
       check_pair() {
