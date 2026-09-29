@@ -225,8 +225,10 @@ takes a rolling backup first. Manual trim/strip CLI included. See
 OpenCode **desktop app** (macOS): model-picker sizing + row info badges,
 colored session titles (renders this repo's session-size tags in color),
 a native **Plugins** menu built from a JSON registry - the control
-surface for this whole plugin set - and a session-menu **Trim & clean**
-submenu that writes the janitor's trim markers from the UI. See
+surface for this whole plugin set - a session-menu **Trim & clean**
+submenu that writes the janitor's trim markers from the UI, and an
+**edit-candidates** patch that turns the edit tool's dead-end errors into
+line-numbered candidate hints. See
 [desktop-patch/README.md](desktop-patch/README.md).
 
 ## Related work

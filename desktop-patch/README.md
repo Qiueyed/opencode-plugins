@@ -16,6 +16,7 @@ tags, and the Plugins menu is the control surface for the whole plugin set.
 | 2 | Model-picker popover enlarges | stock 288x320 -> 384x512, configurable via `oc-ui` |
 | 3 | Colored session titles | a leading size tag (`428M · Title`) renders red >= 300MB / amber >= 100MB / green; pairs with the session-size plugin, harmless without it |
 | 4 | Model row info badges | context window (`200K`/`1M`), `IMG` when the model accepts image input, `$in/M` input price - right-aligned chips per row |
+| 7 | **Edit-candidates** error enrichment | `patch-opencode-edit-candidates.mjs` upgrades the edit tool's two dead-end errors: "oldString not found" gains the closest lines/regions by similarity; "multiple matches" gains up to 5 candidate locations (line number + first line). Ships with a standalone test harness (`test-edit-candidates.mjs`, 7 assertions incl. perf sanity) |
 | 6 | Session **Trim & clean** submenu | `patch-opencode-session-menu.mjs` adds one expandable entry to the session "..." menu: mild trim (keep count from the janitor settings), remove images, remove reads, hard trim last. Writes `⏳`-markers into session titles; the [janitor](../janitor/) consumes them at the next app close |
 | 5 | Native **Plugins** menu | a new application menu built from a JSON registry: any plugin or user can add toggle/action items (checkboxes backed by marker files) |
 
