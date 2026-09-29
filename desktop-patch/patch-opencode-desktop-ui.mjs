@@ -750,6 +750,12 @@ function seedRegistry() {
       "OpenCode Plugins menu registry. Any plugin can append items. Restart the app after registry edits. Entry shapes: {label, command}; {label, command, stateFile} checkbox; {label, command, confirm} info dialog after click; {label, submenu:[...]} nested; {label, command, requireFile} grayed when file missing; {separator:true}.",
     items: [
       {
+        label: "Gate: disabled",
+        command: "sh \"" + path.join(here, "state-toggle") + "\" gateDisabled",
+        stateKey: "gateDisabled",
+        requireFile: plug("gate.ts"),
+      },
+      {
         label: "Vision-guard: allow image reads (bypass)",
         command: "sh \"" + path.join(here, "state-toggle") + "\" visionGuardBypass",
         stateKey: "visionGuardBypass",

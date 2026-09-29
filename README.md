@@ -13,6 +13,7 @@ variables, everything disable-able.
 | [error-root-cause](#error-root-cause) | Real root cause of provider errors as a toast + local JSONL archive | Any | - |
 | [session-guard](#session-guard) | Context-budget warnings + optional low-quality-window reminders | Any | - |
 | [godot-gate-guard](#godot-gate-guard) | Mechanically blocks AI agents from launching hanging headless Godot runs | Any (Godot projects) | your gate wrapper |
+| [gate](#gate) | Offload hub: shellcheck / tsc / class-sweep run automatically on files you touch, at idle. Silent when clean | macOS (partial elsewhere) | shellcheck optional |
 | [notify](#notify) | Provider peak-rate banners + opt-in permission auto-grant, OpenCode-attributed, never wakes you | macOS | - |
 | [Tools](#tools) | state-toggle, plugin-manager, notifier-config - small utilities behind the menu | - | - |
 | [janitor](#janitor) | Post-quit database maintenance: orphan sweep, compaction trim, stale payload strip, vacuum when due | macOS | sqlite3 |
@@ -198,6 +199,16 @@ Small Python utilities that pair with the plugins (no runtime dependency - the p
 - **[tools/state-toggle](tools/state-toggle)** - atomic boolean toggle in `state/state.json`; the backend behind the vision-guard / peak-banner / auto-grant menu checkboxes.
 - **[tools/plugin-manager](tools/plugin-manager)** - enable/disable plugins without hand-moving files. OpenCode auto-loads everything in `plugins/` and has no native manager; this one moves local plugins to `plugins-disabled/` and comments npm entries out of `opencode.jsonc`. `plugin-manager list` to inspect.
 - **[tools/notifier-config](tools/notifier-config)** - atomic editor for the [@mohak34/opencode-notifier](https://www.npmjs.com/package/@mohak34/opencode-notifier) config (`notifier-config volume quiet`, `notifier-config tone question alt`) - the backend for a Notifier menu. Its crash-safe `tmp + os.replace` write means a mid-write kill can never corrupt the notifier\x27s config.
+## gate
+
+[gate.ts](gate.ts) is the offload hub: everything mechanical runs here so the
+AI never spends turns on it. Files touched by edit/write calls are collected
+per turn; at idle the tiered gates fire - `shellcheck` on shell files,
+`tsc --strict` on touched plugins, and `class-sweep` (fast mode; full mode
+when a patcher was touched) over the config and repo. Silent when clean,
+toasts only findings. Kill switch: `Gate: disabled` in the Plugins menu
+(`state.json` `gateDisabled`).
+
 ## notify
 
 [notify.ts](notify.ts) complements the community
