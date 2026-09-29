@@ -29,9 +29,9 @@ import { readFileSync } from "node:fs"
 import path from "node:path"
 
 // Desktop-app users often cannot export env vars before launch, so the
-// option can also live in ~/.config/opencode/caffeinate.settings.json as
+// option can also live in ~/.config/opencode/state/caffeinate.settings.json as
 // {"OPENCODE_CAFFEINATE": "off"}. Precedence: env var > settings file.
-const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "caffeinate.settings.json")
+const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "state", "caffeinate.settings.json")
 function setting(key: string, fallback: string): string {
   const envVal = process.env[key]
   if (envVal !== undefined && envVal !== "") return envVal

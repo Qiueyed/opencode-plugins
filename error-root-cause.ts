@@ -30,10 +30,10 @@ import { homedir } from "node:os"
 import path from "node:path"
 
 // Desktop-app users often cannot export env vars before launch, so the
-// option can also live in ~/.config/opencode/error-root-cause.settings.json
+// option can also live in ~/.config/opencode/state/error-root-cause.settings.json
 // as {"OPENCODE_ERROR_LOG": "/path/log.jsonl"}. Precedence: env var >
 // settings file > default.
-const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "error-root-cause.settings.json")
+const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "state", "error-root-cause.settings.json")
 function setting(key: string, fallback: string): string {
   const envVal = process.env[key]
   if (envVal !== undefined && envVal !== "") return envVal

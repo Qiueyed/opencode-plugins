@@ -63,7 +63,7 @@ const INSPECT_QUALITY = 80
 // setting is read on every inspection failure, so flipping fail-open in the
 // file works mid-session without a restart (the bypass marker and the
 // OPENCODE_VISION_GUARD=allow check are also evaluated live).
-const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "vision-guard.settings.json")
+const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "state", "vision-guard.settings.json")
 function setting(key: string, fallback: string): string {
   const envVal = process.env[key]
   if (envVal !== undefined && envVal !== "") return envVal

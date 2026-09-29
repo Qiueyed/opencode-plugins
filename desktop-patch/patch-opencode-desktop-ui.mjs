@@ -72,11 +72,11 @@ const REGISTRY_FILE = path.join(process.env.HOME || ".", ".config", "opencode", 
 const STATE_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "state", "state.json");
 
 // Picker popover size. Tweak these and re-run to resize.
-// Overridable WITHOUT editing this file: ~/.config/opencode/ui-patch.json
+// Overridable WITHOUT editing this file: ~/.config/opencode/state/ui-patch.json
 //   { "popoverWidthRem": 24, "popoverHeightRem": 32,
 //     "badgeContext": true, "badgeImage": true, "badgeCost": true }
 // or CLI: --popover-w 28 --popover-h 40 --badge-img off  (CLI > json > here)
-const CONFIG_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "ui-patch.json");
+const CONFIG_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "state", "ui-patch.json");
 function readUiConfig() {
   const cfg = {
     popoverWidthRem: 24, // stock: 18rem (288px)

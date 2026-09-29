@@ -42,7 +42,7 @@
 // start from the project dir or its parent) or .opencode/plugins/ (project),
 // then restart OpenCode.
 //
-// Config (env or ~/.config/opencode/godot-gate-guard.settings.json,
+// Config (env or ~/.config/opencode/state/godot-gate-guard.settings.json,
 // env wins; read once at startup):
 //   OPENCODE_GODOT_GATE_TOKENS   comma-separated project name/path fragments
 //                                to guard (default: "" = only auto-detected
@@ -56,7 +56,7 @@ import type { Plugin } from "@opencode-ai/plugin"
 import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 
-const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "godot-gate-guard.settings.json")
+const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "state", "godot-gate-guard.settings.json")
 function setting(key: string, fallback: string): string {
   const envVal = process.env[key]
   if (envVal !== undefined && envVal !== "") return envVal
