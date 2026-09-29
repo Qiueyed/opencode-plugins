@@ -13,6 +13,7 @@ variables, everything disable-able.
 | [error-root-cause](#error-root-cause) | Real root cause of provider errors as a toast + local JSONL archive | Any | - |
 | [session-guard](#session-guard) | Context-budget warnings + optional low-quality-window reminders | Any | - |
 | [godot-gate-guard](#godot-gate-guard) | Mechanically blocks AI agents from launching hanging headless Godot runs | Any (Godot projects) | your gate wrapper |
+| [notify](#notify) | Provider peak-rate banners + opt-in permission auto-grant, OpenCode-attributed, never wakes you | macOS | - |
 | [janitor](#janitor) | Post-quit database maintenance: orphan sweep, compaction trim, stale payload strip, vacuum when due | macOS | sqlite3 |
 
 ## Install
@@ -186,6 +187,27 @@ npm install, no build step, and no other file from this repo.
   breaking your session; every one has an env kill-switch.
 - All of them were extracted from daily personal use; they are plain-reading
   single files on purpose - read before you install.
+
+## notify
+
+[notify.ts](notify.ts) complements the community
+`@mohak34/opencode-notifier` (which owns event sounds/banners) with three
+things it does not do:
+
+- **Peak-rate windows**: one banner per day when a provider's time-based
+  pricing window opens (ships with the verified GLM coding-plan schedule;
+  add providers only with verified hours). Fires only if you actually have
+  the provider (auth.json match), survives the desktop app's multi-instance
+  plugin loading via an atomic claim file, and stays silent while you are
+  away (HID idle gate) without burning the day's banner.
+- **Permission auto-grant (opt-in, default OFF)**: approves every permission
+  ask so agent runs never block. Create `~/.config/opencode/notify-autogrant.on`
+  to enable. Config-level denies still short-circuit before any ask.
+- **Attribution**: banners are targeted at the OpenCode bundle when it runs,
+  so they show OpenCode's name and icon instead of "Script Editor".
+
+Kill switches: `peak-banner.off` (banners, live) and deleting the autogrant
+marker (permissions, at next restart).
 
 ## janitor
 
