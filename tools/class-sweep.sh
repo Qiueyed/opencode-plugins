@@ -45,5 +45,25 @@ if stale:
     print("FAIL stale stateFile entries:", stale); sys.exit(1)
 print("ok   registry: valid JSON, no stale stateFile")
 PY
+# Class 7: injected-block markers must pair open+end in the SHIPPED bundle
+ASAR="/Applications/OpenCode.app/Contents/Resources/app.asar"
+if [ -f "$ASAR" ] && command -v npx >/dev/null; then
+  TMPD=$(mktemp -d)
+  if npx --yes @electron/asar extract "$ASAR" "$TMPD" >/dev/null 2>&1; then
+    for name in opencode-plugins-menu-patch; do
+      OPEN_N=$(grep -c "== ${name}" "$TMPD/out/main/index.js" 2>/dev/null || echo 0)
+      END_N=$(grep -c "== end ${name} ==" "$TMPD/out/main/index.js" 2>/dev/null || echo 0)
+      if [ "$OPEN_N" -lt 1 ] || [ "$END_N" -ne "$OPEN_N" ]; then
+        fails=$((fails+1)); say "FAIL marker pairing: ${name} (open=${OPEN_N} end=${END_N})"
+      fi
+    done
+    say "ok   marker pairing (shipped bundle)"
+  else
+    say "skip marker pairing (bundle extract failed)"
+  fi
+  rm -rf "$TMPD"
+else
+  say "skip marker pairing (bundle or npx unavailable)"
+fi
 echo "---"
 if [ "$fails" -eq 0 ]; then say "CLASS SWEEP: ALL CLEAN"; else say "CLASS SWEEP: $fails CLASS(ES) FAILED"; exit 1; fi
