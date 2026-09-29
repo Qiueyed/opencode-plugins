@@ -12,6 +12,7 @@ variables, everything disable-able.
 | [session-size](#session-size) | Tags every session title with its storage size: `428M · My Session` | Any (needs `sqlite3` CLI) | sqlite3 |
 | [error-root-cause](#error-root-cause) | Real root cause of provider errors as a toast + local JSONL archive | Any | - |
 | [session-guard](#session-guard) | Context-budget warnings + optional low-quality-window reminders | Any | - |
+| [godot-gate-guard](#godot-gate-guard) | Mechanically blocks AI agents from launching hanging headless Godot runs | Any (Godot projects) | your gate wrapper |
 
 ## Install
 
@@ -169,6 +170,40 @@ token lines, and can remind you about provider low-quality time windows.
   enabling, not gating)
 - [opencode-models-discovery](https://github.com/yuhp/opencode-models-discovery) -
   auto-discovery of local Ollama/LM Studio models
+
+## godot-gate-guard
+
+For Godot projects developed with AI agents. Two classic hang classes,
+made mechanically impossible instead of documented-and-hoped:
+
+1. **Ungated headless runs**: a parse-dead script probe never reaches its
+   `quit()` and the process sits forever. The guard blocks any bare
+   `--headless` Godot launch, except standard one-shots
+   (`--check-only`, `--import`, `--version`, `--help`, `--export-*`).
+2. **Misplaced `--quit-after`**: engine args after Godot's ` -- ` separator
+   are user args and get ignored - the boot never quits. Blocked in both
+   headless and windowed runs.
+
+Blocked commands are neutered by rewriting them into an echo of the reason
+(the original never executes), so the agent reads WHY and reroutes through
+your gate wrapper - typically a `tools/gate` script that launches Godot with
+an instant kill on the first error line plus a wall-clock cap:
+
+```sh
+./tools/gate smoke-test 30 -- --headless --path . scenes/World.tscn
+```
+
+**Zero config**: any session started inside a project that contains
+`tools/gate` is guarded automatically. Everything else is inert. The plugin
+never fires outside guarded projects, and an explicit absolute `--path` to a
+different project opts the command out.
+
+| Env / settings key | Default | Meaning |
+|---|---|---|
+| `OPENCODE_GODOT_GATE` | - | `off` disables |
+| `OPENCODE_GODOT_GATE_TOKENS` | none | extra project name/path fragments to guard |
+| `OPENCODE_GODOT_GATE_WRAPPER` | `tools/gate` | command fragment treated as "gated" |
+| `OPENCODE_GODOT_GATE_EXEMPT` | none | extra regex of bare-headless exemptions |
 
 ## License
 
