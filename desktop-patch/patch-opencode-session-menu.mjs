@@ -44,7 +44,7 @@ const MARK4 = "Remove reads";
 const MARK3 = "Trim hard (keep 5)";
 
 // Marker contract shared with the janitor: bare ⏳TRIM resolves the keep
-// count from trim-keep.txt (default 15) - the mild default. ⏳TRIM5 is the
+// count from state/state.json sessionTrimKeep (default 15) - the mild default. ⏳TRIM5 is the
 // explicit hard option. ⏳IMGS / ⏳READS strip those payload classes.
 
 function markerItem(label, marker) {
@@ -287,7 +287,7 @@ function main() {
 
     // v5 upgrade FIRST (must run even when all items exist): the main Trim
     // item now writes a BARE marker; the keep count is resolved by the
-    // janitor from the Plugins-menu setting (trim-keep.txt).
+    // janitor from the Plugins-menu setting (state.json sessionTrimKeep).
     const oldWriteCount = js.split('TRIM15").trim()').length - 1;
     if (oldWriteCount > 0) {
       js = js.split('TRIM15").trim()').join('TRIM").trim()');
