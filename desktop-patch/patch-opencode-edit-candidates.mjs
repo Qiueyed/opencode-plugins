@@ -327,7 +327,7 @@ function patchFile(file, workdir) {
     }
     code = code.slice(0, start) + HELPERS + code.slice(end);
     fs.writeFileSync(file, code);
-    console.log("upgraded edit helpers v1 -> v2 in:", path.relative(workdir, file));
+    console.log("upgraded edit helpers to v2.1 in:", path.relative(workdir, file));
     return true;
   }
   for (const [name, anchor] of [["not-found", ANCHOR_NOT_FOUND], ["multi-match", ANCHOR_MULTI]]) {

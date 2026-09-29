@@ -25,7 +25,7 @@ function extractHelpersFromChunk(file) {
   // v2 chunks carry a marker and start with editLineAt; v1 chunks start
   // directly at editCandidateLines. Either way the span ends at the
   // injection anchor that follows the helpers.
-  const startCandidates = ["/* ec-helpers-v2 */", "function editLineAt", "function editCandidateLines"];
+  const startCandidates = ["/* ec-helpers-v2.1 */", "/* ec-helpers-v2 */", "function editLineAt", "function editCandidateLines"];
   let start = -1;
   for (const c of startCandidates) {
     start = code.indexOf(c);
@@ -166,6 +166,35 @@ const stockNotFound = "Could not find oldString in the file. It must match exact
   assert.ok(!msg.includes("Candidates:"), "no per-line listing at scale");
   assert.ok(msg.includes("replaceAll"), "replaceAll hint kept");
   console.log("9. many-candidates range summary: OK");
+}
+
+// --- 10. indentation-only mismatch gets an explanatory label (v2.1) ---------
+{
+  const content = "x\n    let total = items.sum();\ny";
+  const msg = editNotFoundReport(content, "  let total = items.sum();");
+  assert.ok(msg.includes("after trim"), "indent-only mismatch explained: " + msg);
+  console.log("10. indentation-mismatch label: OK");
+}
+
+// --- 11. degenerate needles never get a mass-replace hint (v2.1) ------------
+{
+  const big = Array.from({ length: 5000 }, (_, i) => "line " + i + " letters eeee here").join("\n");
+  const emptyMsg = editAmbiguityReport(big, "");
+  assert.ok(emptyMsg.includes("empty or whitespace-only"), "empty needle called out: " + emptyMsg);
+  const oneMsg = editAmbiguityReport(big, "e");
+  assert.ok(!oneMsg.includes("replaceAll"), "no mass-replace hint for single letter: " + oneMsg);
+  assert.ok(oneMsg.includes("too short to be unique"), "short-needle guidance: " + oneMsg);
+  const wsMsg = editAmbiguityReport(big, "\t  \t ");
+  assert.ok(!wsMsg.includes("replaceAll"), "whitespace run safe: " + wsMsg);
+  console.log("11. degenerate needles: OK");
+}
+
+// --- 12. CRLF note (v2.1) ----------------------------------------------------
+{
+  const content = "alpha\r\nbeta\r\ngamma\r\n";
+  const msg = editNotFoundReport(content, "delta");
+  assert.ok(msg.includes("CRLF"), "CRLF note present: " + msg);
+  console.log("12. CRLF note: OK");
 }
 
 console.log("\nAll helper tests passed.");
