@@ -26,6 +26,19 @@ import { execFileSync } from "child_process";
 const DB = process.env.TRIM_DB_TEST || path.join(process.env.XDG_DATA_HOME || path.join(process.env.HOME, ".local/share"), "opencode", "opencode.db");
 const BACKUP = DB + ".trim-backup";
 
+function backup() {
+  if (!process.env.TRIM_DB_TEST && appRunning()) {
+    console.error("OpenCode started mid-run - aborting without touching anything.");
+    process.exit(1);
+  }
+  // sqlite3 .backup, NEVER fs.copyFileSync: a plain cp of a WAL db copies
+  // only the main file - committed transactions still in -wal (crash exit,
+  // no checkpoint) are silently missing from the backup. (Same lesson as
+  // janitor.sh's take_trim_backup.)
+  execFileSync("sqlite3", [DB, ".timeout 10000", ".backup '" + BACKUP + "'"]);
+  return Math.round(fs.statSync(BACKUP).size / 1048576);
+}
+
 function sh(cmd, args, opts = {}) {
   const { input, ...rest } = opts;
   return execFileSync(cmd, args, { stdio: ["pipe", "pipe", "pipe"], ...(input !== undefined ? { input } : {}), ...rest })
@@ -46,7 +59,7 @@ function sqlWrite(statement) {
 
 function appRunning() {
   const out = sh("ps", ["axo", "command="]);
-  return /OpenCode[.]app\/Contents\/MacOS\/OpenCode(\s|$)/m.test(out);
+  return /OpenCode[.]app\/Contents\/MacOS\/OpenCode(\s|$)|[./]opencode(\s|$)/m.test(out);
 }
 
 const [, , cmdArg, keepArg] = process.argv;
@@ -82,8 +95,8 @@ if (cmdArg === "--strip-images") {
     console.error("usage: opencode-session-trim --strip-images <session-id|all|latest>");
     process.exit(1);
   }
-  fs.copyFileSync(DB, BACKUP);
-  console.log(`backup: ${path.basename(BACKUP)} (${Math.round(fs.statSync(BACKUP).size / 1048576)}MB)`);
+  const backupMB = backup();
+  console.log(`backup: ${path.basename(BACKUP)} (${backupMB}MB)`);
   let total = 0;
   let bytes = 0;
   for (const sid of ids) {
@@ -115,8 +128,8 @@ if (cmdArg === "--strip-reads") {
     console.error("usage: opencode-session-trim --strip-reads <session-id|all|latest>");
     process.exit(1);
   }
-  fs.copyFileSync(DB, BACKUP);
-  console.log(`backup: ${path.basename(BACKUP)} (${Math.round(fs.statSync(BACKUP).size / 1048576)}MB)`);
+  const backupMB = backup();
+  console.log(`backup: ${path.basename(BACKUP)} (${backupMB}MB)`);
   let total = 0;
   let bytes = 0;
   for (const sid of ids) {
@@ -172,8 +185,8 @@ if (Number(older) === 0) {
   process.exit(0);
 }
 
-fs.copyFileSync(DB, BACKUP);
-console.log(`backup: ${path.basename(BACKUP)} (${Math.round(fs.statSync(BACKUP).size / 1048576)}MB)`);
+const backupMB = backup();
+console.log(`backup: ${path.basename(BACKUP)} (${backupMB}MB)`);
 
 const delParts = sqlWrite(
   `DELETE FROM part WHERE session_id='${q}' AND message_id IN (SELECT id FROM message WHERE session_id='${q}' AND (time_created < ${cutTime} OR (time_created = ${cutTime} AND rowid < ${cutRow})));`,

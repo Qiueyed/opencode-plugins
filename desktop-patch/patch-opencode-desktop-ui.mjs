@@ -234,10 +234,18 @@ print(p["ElectronAsarIntegrity"]["Resources/app.asar"]["hash"])
   return hash;
 }
 
+// Stable signing identity (self-signed cert, login keychain). Ad-hoc ("-")
+// yields a fresh cdhash on every re-patch, which makes macOS TCC grants stop
+// matching: the microphone prompt for afplay-via-Background-Music kept
+// returning even after Allow (2026-09-29). A named identity keeps the TCC
+// code designation stable, so grants survive re-patches. Override with
+// OC_SIGN_IDENTITY env var; codesign fails loud if the cert is missing.
+const SIGN_IDENTITY = process.env.OC_SIGN_IDENTITY || "OpenCode Local Notifier";
+
 function resign() {
-  sh("codesign", ["--force", "--deep", "--sign", "-", APP]);
+  sh("codesign", ["--force", "--deep", "--sign", SIGN_IDENTITY, APP]);
   sh("codesign", ["--verify", "--deep", APP]);
-  console.log("codesign: ad-hoc re-signed + verified OK");
+  console.log(`codesign: re-signed as "${SIGN_IDENTITY}" + verified OK`);
 }
 
 function extractAsar(dest) {
@@ -569,7 +577,7 @@ function pluginsMenuBlock() {
   return `${MENU_MARKER_START} (added by patches/patch-opencode-desktop-ui.mjs; safe to delete this block to undo) */
 function ocLoadPluginsRegistry() {
   try {
-    const raw = spawnSync("/bin/cat", ["${REGISTRY_FILE}"]);
+    const raw = spawnSync("/bin/cat", [${JSON.stringify(REGISTRY_FILE)}]);
     if (raw.status !== 0) return [];
     const parsed = JSON.parse(String(raw.stdout));
     return Array.isArray(parsed?.items) ? parsed.items : [];
@@ -723,7 +731,8 @@ function patchPluginsMenu(workdir) {
 function seedRegistry() {
   if (fs.existsSync(REGISTRY_FILE)) return;
   const here = path.dirname(path.resolve(process.argv[1] || "."));
-  const ocui = `sh "${path.join(here, "oc-ui")}"`;
+  const sq = (v) => "'" + String(v).replace(/'/g, "'\\''") + "'";
+  const ocui = "sh " + sq(path.join(here, "oc-ui"));
   const home = process.env.HOME || "~";
   const plug = (p) => `${home}/.config/opencode/plugins/${p}`;
   const RESTART = "Applied. Quit OpenCode (Cmd+Q) and reopen to load it.";
@@ -734,7 +743,7 @@ function seedRegistry() {
       {
         label: "Vision-guard: allow image reads (bypass)",
         command:
-          "test -e \"$HOME/.config/opencode/vision-guard.off\" && rm \"$HOME/.config/opencode/vision-guard.off\" || touch \"$HOME/.config/opencode/vision-guard.off\"",
+          "if test -e \"$HOME/.config/opencode/vision-guard.off\"; then rm \"$HOME/.config/opencode/vision-guard.off\"; else touch \"$HOME/.config/opencode/vision-guard.off\"; fi",
         stateFile: home + "/.config/opencode/vision-guard.off",
         requireFile: plug("vision-guard.ts"),
       },
@@ -748,6 +757,11 @@ function seedRegistry() {
         ],
       },
       { separator: true },
+      {
+        label: "Open backup folder",
+        command: "open \"" + home + "/.local/share/opencode\"",
+        requireFile: home + "/.local/share/opencode/opencode.db.trim-backup",
+      },
       { label: "Open plugins folder", command: "open \"$HOME/.config/opencode/plugins\"" },
       { label: "Open patches folder", command: "open \"$HOME/.config/opencode/patches\"" },
     ],
@@ -851,7 +865,11 @@ function main() {
     const hash = stampIntegrity();
     console.log("asar repacked; integrity hash:", hash.slice(0, 16) + "...");
     resign();
-    seedRegistry();
+    try {
+      seedRegistry();
+    } catch (e) {
+      console.warn("NOTE: patch is live, but seeding the plugins-menu registry failed:", e && e.message);
+    }
     console.log("\nDone. Quit OpenCode (Cmd+Q) and reopen to load the patched UI.");
     console.log("NOTE: app auto-updates replace the bundle -> re-run this patch after updates.");
     console.log("Revert anytime with: node patch-opencode-desktop-ui.mjs --revert");

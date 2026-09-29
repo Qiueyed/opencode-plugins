@@ -32,11 +32,21 @@ LOCK="$LOG_DIR/.janitor-lock"
 # under the bundle - including orphaned chrome_crashpad_handler helpers that
 # OUTLIVE the app for days (found one from the previous day still alive). With
 # a zombie matching, the watcher waited forever and never vacuumed even during
-# a multi-hour closed window. Watch ONLY the main binary: when it is gone, the
-# app is closed (helpers/crashpad may linger harmlessly).
-PATTERN='OpenCode[.]app/Contents/MacOS/OpenCode'
+# a multi-hour closed window. Watch the main binary AND the opencode CLI (the
+# CLI writes the same db): when both are gone the db is uncontended
+# (helpers/crashpad may linger harmlessly).
+PATTERN='OpenCode[.]app/Contents/MacOS/OpenCode|[./]opencode( |$)'  # main binary OR the opencode CLI (both hold the db)
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
+
+# mid-sweep relaunch guard: a reopen during the multi-second sweep must not
+# turn DELETEs/VACUUM against a live app - abort, the next quit retries.
+still_closed() {
+  if ps axo command= 2>/dev/null | grep -q "$PATTERN"; then
+    log "relaunch detected mid-sweep - aborting (retried at next quit)"
+    exit 0
+  fi
+}
 
 # --- lock (atomic mkdir; reclaim a stale one after 24h - startup-armed
 # janitors legitimately wait that long, so the old 10-min reclaim would kill
@@ -44,19 +54,22 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 if ! mkdir "$LOCK" 2>/dev/null; then
   age=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
   if [ "$age" -lt 86400 ]; then exit 0; fi
+  OLD_PID=$(cat "$LOCK/pid" 2>/dev/null)
+  if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then exit 0; fi
   rm -rf "$LOCK"
   mkdir "$LOCK" 2>/dev/null || exit 0
 fi
 echo $$ > "$LOCK/pid"
-trap 'rm -rf "$LOCK"' EXIT
+on_exit() { [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK" || true; }
+trap on_exit EXIT
 
 [ -f "$DB" ] || { log "skip: db not found ($DB)"; exit 0; }
 
 # --- wait for app exit (relaunch-race AND crash-race resistant) ---
 # Design: armed at OpenCode STARTUP (not quit). The plugin spawns
 # this script detached at plugin load; it simply WAITS - possibly for days -
-# until every OpenCode.app process is gone, then vacuums. No give-up cap: a
-# silent sleeping loop polling `ps` every 30s costs nothing, and the mkdir
+# until every OpenCode process is gone, then vacuums. No give-up cap: a
+# silent sleeping loop polling `ps` every 2s costs nothing, and the mkdir
 # lock (stale reclaim raised to 24h) keeps exactly one instance. This removes
 # the dependency on the sidecar's exit handlers entirely: desktop quits can
 # kill the sidecar without running them (observed twice in practice:
@@ -67,6 +80,7 @@ if [ -z "$JANITOR_SKIP_WAIT" ]; then
   done
   sleep 1
 fi
+still_closed
 
 # --- orphan sweep (idempotent; guarded counts before each delete) ---
 # ".timeout" dot-command = busy handler in ms, emits NO output (a chained
@@ -82,6 +96,7 @@ SEQ=$(sweep event_sequence aggregate_id "SELECT id FROM session")
 MSG=$(sweep message session_id "SELECT id FROM session")
 PRT=$(sweep part session_id "SELECT id FROM session")
 
+still_closed
 # --- compaction trim ---
 # When a session is compacted, opencode writes a summary message
 # (data: mode=compaction, summary=true) and the model context continues from
@@ -154,6 +169,7 @@ SELECT changes();" 2>/dev/null | tail -1 | tr -d '[:space:]')
   fi
 fi
 
+still_closed
 # --- UI-requested trims: a session title suffixed " ⏳TRIM15" (= keep last
 # 15 user turns) is trimmed at close and the marker stripped. Markers come
 # from the desktop session-menu patch if installed; renaming a session to
@@ -180,7 +196,7 @@ SELECT time_created, rowid FROM message WHERE session_id='$QSID'
 ORDER BY time_created DESC, rowid DESC LIMIT 1 OFFSET $((KEEP - 1));" 2>/dev/null)
     # strip the marker from the title regardless of trim outcome
     sqlite3 "$DB" ".timeout 5000" "
-UPDATE session SET title = RTRIM(REPLACE(REPLACE(title, ' ⏳TRIM$KEEP', ''), ' ⏳TRIM', ''))
+UPDATE session SET title = RTRIM(REPLACE(REPLACE(REPLACE(REPLACE(title, ' ⏳TRIM$KEEP', ''), ' ⏳TRIM', ''), '⏳TRIM$KEEP', ''), '⏳TRIM', ''))
 WHERE id = '$QSID';" 2>/dev/null
     [ -n "$CUTOFF" ] || continue
     CT=$(echo "$CUTOFF" | cut -d'|' -f1)
@@ -206,6 +222,7 @@ SELECT changes();" 2>/dev/null | tail -1 | tr -d '[:space:]')
   [ "$UI_TOTAL" -gt 0 ] && log "ui trim: ${UI_TOTAL} rows removed on marked session(s), keep=${KEEP} (backup: opencode.db.trim-backup)"
 fi
 
+still_closed
 # --- image strip: TWO triggers, both keep every message and all text
 # (the images have already served their purpose once inspected):
 #   a) sessions title-marked " ⏳IMGS" by the menu's "Remove images" item
@@ -228,7 +245,7 @@ if [ -n "$IMG_MARKED" ]; then
     [ -n "$SID" ] || continue
     QSID=$(echo "$SID" | sed "s/'/''/g")
     sqlite3 "$DB" ".timeout 5000" "
-UPDATE session SET title = RTRIM(REPLACE(title, ' ⏳IMGS', '')) WHERE id = '$QSID';" 2>/dev/null
+UPDATE session SET title = RTRIM(REPLACE(REPLACE(title, ' ⏳IMGS', ''), '⏳IMGS', '')) WHERE id = '$QSID';" 2>/dev/null
     B=$(sqlite3 "$DB" ".timeout 5000" "
 SELECT COALESCE(SUM(LENGTH(data)),0) FROM part WHERE session_id='$QSID'
   AND (json_extract(data,'\$.mime') LIKE 'image%' OR json_extract(data,'\$.type')='image');" 2>/dev/null | tr -d '[:space:]')
@@ -250,7 +267,7 @@ if [ -n "$READS_MARKED" ]; then
     [ -n "$SID" ] || continue
     QSID=$(echo "$SID" | sed "s/'/''/g")
     sqlite3 "$DB" ".timeout 5000" "
-UPDATE session SET title = RTRIM(REPLACE(title, ' ⏳READS', '')) WHERE id = '$QSID';" 2>/dev/null
+UPDATE session SET title = RTRIM(REPLACE(REPLACE(title, ' ⏳READS', ''), '⏳READS', '')) WHERE id = '$QSID';" 2>/dev/null
     B=$(sqlite3 "$DB" ".timeout 5000" "
 SELECT COALESCE(SUM(LENGTH(data)),0) FROM part WHERE session_id='$QSID'
   AND json_extract(data,'$.type')='tool' AND json_extract(data,'$.tool')='read';" 2>/dev/null | tr -d '[:space:]')
@@ -295,6 +312,7 @@ DELETE FROM event WHERE type LIKE 'message.part.updated%'
   log "payload strip: ${IMGS_TOTAL} marked session(s) cleared, ~${IMGS_MB}MB removed (images/reads, stale + marked; backup: opencode.db.trim-backup)"
 fi
 
+still_closed
 # --- session.updated cap: title rewrites (size tags etc.) persist a
 # session.updated event EVERY time, and stale ones only feed live-sync
 # replays in other windows - churn. Keep the newest 5 per session
@@ -308,6 +326,7 @@ DELETE FROM event WHERE type LIKE 'session.updated%' AND seq NOT IN (
 SELECT changes();" 2>/dev/null | tail -1 | tr -d '[:space:]')
 [ -n "$SU_DELETED" ] && [ "$SU_DELETED" -gt 0 ] && log "session.updated cap: removed ${SU_DELETED} churn events (kept newest ${SU_CAP}/session)"
 
+still_closed
 # --- vacuum only when due (>= 10% free pages) ---
 read -r PC FC PSZ <<<"$(sqlite3 -separator ' ' "$DB" ".timeout 5000" "SELECT page_count, freelist_count, page_size FROM pragma_page_count, pragma_freelist_count, pragma_page_size;" 2>/dev/null)"
 SIZE_BEFORE=$(stat -f %z "$DB")
