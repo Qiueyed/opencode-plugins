@@ -579,7 +579,8 @@ function ocLoadPluginsRegistry() {
 }
 function ocFileExists(p) {
   try {
-    return spawnSync("/usr/bin/test", ["-e", String(p)]).status === 0;
+    // via sh: /usr/bin/test is absent on some macOS installs; /bin/sh never is
+    return spawnSync("/bin/sh", ["-c", "test -e \\\"$1\\\"", "oc", String(p)]).status === 0;
   } catch {
     return false;
   }
