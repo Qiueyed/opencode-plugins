@@ -149,6 +149,32 @@ token lines, and can remind you about provider low-quality time windows.
 | `OPENCODE_SESSION_GUARD_WINDOWS` | none | UTC windows, e.g. `6-10,14-18` |
 | `OPENCODE_SESSION_GUARD_WINDOW_THROTTLE` | `1800000` | min ms between window toasts |
 
+## Compatibility
+
+**Every plugin file is complete on its own.** The only SDK import is
+type-only (erased when OpenCode loads the file), and everything else is
+Node built-ins - so a single downloaded `.ts`/`.js` file works with no
+npm install, no build step, and no other file from this repo.
+
+- **No plugin imports another plugin**, and no plugin requires the
+  desktop patch. The pairings are optional enhancements: desktop-patch
+  renders session-size tags in color, and its Plugins menu can control
+  plugins - but both sides work alone.
+- **Missing tools degrade, never break**: vision-guard without Ollama
+  blocks image reads (fail-closed; use the fail-open policy or kill
+  switch), caffeinate and image-shrink no-op off macOS, session-size
+  disables itself without the sqlite3 CLI or db file, godot-gate-guard is
+  inert outside projects with a gate wrapper, error-root-cause and
+  session-guard have zero external tools.
+- **Surfaces used**: the `tool.execute.before` / `chat.message` /
+  `event` hooks plus `client.app.log`, `client.tui.showToast`,
+  `client.session.list/update`. Toasts are caught and logged in headless
+  runs, so nothing crashes without a UI.
+- **Tested on OpenCode 1.16.x** (desktop + TUI). The API surface used is
+  small and stable; if a future version changes hooks, a plugin failing
+  to load is logged by OpenCode and the rest keep working - plugins fail
+  individually, never together.
+
 ## Safety notes
 
 - No telemetry, no network calls except vision-guard's localhost Ollama
