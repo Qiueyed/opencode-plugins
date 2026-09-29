@@ -46,7 +46,7 @@ export const Gate = (async ({ client }: { client: any }) => {
   const STATE_FILE = CFG + "/state/state.json"
   const gateDisabled = (): boolean => {
     try {
-      return JSON.parse(fs.readFileSync(STATE_FILE, "utf8")).gateDisabled === true
+      return JSON.parse(readFileSync(STATE_FILE, "utf8")).gateDisabled === true
     } catch {
       return false
     }
