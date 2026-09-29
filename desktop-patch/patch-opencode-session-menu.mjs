@@ -368,7 +368,9 @@ function main() {
     fs.writeFileSync(file, js);
     const packed = path.join(workdir, "app.asar.new");
     sh("npx", ["--yes", "@electron/asar", "pack", workdir, packed]);
-    fs.copyFileSync(packed, ASAR);
+    // Atomic replace so a running OpenCode instance keeps its old inode.
+    fs.copyFileSync(packed, ASAR + ".incoming");
+    fs.renameSync(ASAR + ".incoming", ASAR);
     const hash = stampIntegrity();
     console.log("asar repacked; integrity hash:", hash.slice(0, 16) + "...");
     resign();

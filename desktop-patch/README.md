@@ -67,7 +67,7 @@ node patch-opencode-desktop-ui.mjs --revert
 Each change re-runs the idempotent patcher and drops a macOS notification
 reminding you to restart OpenCode (the CSS ships inside the signed bundle,
 so a restart is always part of applying a size). Config persists in
-`~/.config/opencode/ui-patch.json`; CLI flags `--popover-w/--popover-h/
+`~/.config/opencode/state/ui-patch.json`; CLI flags `--popover-w/--popover-h/
 --badge-ctx/--badge-img/--badge-cost` override it per run.
 
 ## The Plugins menu (registry)
