@@ -240,6 +240,29 @@ DELETE FROM part WHERE session_id='$QSID'
     IMGS_MB=$((IMGS_MB + B / 1048576))
   done <<< "$IMG_MARKED"
 fi
+# --- session-trim marker: ⏳READS (strip read-tool parts from marked
+# sessions; same contract as ⏳IMGS - messages and text kept)
+READS_MARKED=$(sqlite3 -separator '|' "$DB" ".timeout 5000" "
+SELECT id, title FROM session WHERE title LIKE '%⏳READS%';" 2>/dev/null)
+if [ -n "$READS_MARKED" ]; then
+  take_img_backup
+  while IFS='|' read -r SID TITLE; do
+    [ -n "$SID" ] || continue
+    QSID=$(echo "$SID" | sed "s/'/''/g")
+    sqlite3 "$DB" ".timeout 5000" "
+UPDATE session SET title = RTRIM(REPLACE(title, ' ⏳READS', '')) WHERE id = '$QSID';" 2>/dev/null
+    B=$(sqlite3 "$DB" ".timeout 5000" "
+SELECT COALESCE(SUM(LENGTH(data)),0) FROM part WHERE session_id='$QSID'
+  AND json_extract(data,'$.type')='tool' AND json_extract(data,'$.tool')='read';" 2>/dev/null | tr -d '[:space:]')
+    [ -n "$B" ] && [ "$B" -gt 0 ] || continue
+    sqlite3 "$DB" ".timeout 5000" "
+DELETE FROM part WHERE session_id='$QSID'
+  AND json_extract(data,'$.type')='tool' AND json_extract(data,'$.tool')='read';" 2>/dev/null
+    IMGS_TOTAL=$((IMGS_TOTAL + 1))
+    IMGS_MB=$((IMGS_MB + B / 1048576))
+  done <<< "$READS_MARKED"
+fi
+
 STALE_CUTOFF=$(( $(date +%s) * 1000 - 172800000 ))
 STALE_B=$(sqlite3 "$DB" ".timeout 5000" "
 SELECT COALESCE(SUM(LENGTH(p.data)),0) FROM part p JOIN session s ON s.id = p.session_id
@@ -269,7 +292,7 @@ if [ "$IMGS_MB" -gt 0 ] || [ "$IMGS_TOTAL" -gt 0 ]; then
   sqlite3 "$DB" ".timeout 30000" "
 DELETE FROM event WHERE type LIKE 'message.part.updated%'
   AND json_extract(data,'\$.part.id') NOT IN (SELECT id FROM part);" 2>/dev/null
-  log "payload strip: ${IMGS_TOTAL} marked session(s) cleared, ~${IMGS_MB}MB removed (images + file reads, 48h stale + marked; backup: opencode.db.trim-backup)"
+  log "payload strip: ${IMGS_TOTAL} marked session(s) cleared, ~${IMGS_MB}MB removed (images/reads, stale + marked; backup: opencode.db.trim-backup)"
 fi
 
 # --- session.updated cap: title rewrites (size tags etc.) persist a
