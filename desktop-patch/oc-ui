@@ -1,0 +1,109 @@
+#!/bin/zsh
+# oc-ui: manual control for the OpenCode desktop UI patch.
+#
+#   oc-ui status                  show current size/badges config
+#   oc-ui width <rem>             set popover width  (e.g. oc-ui width 28)
+#   oc-ui height <rem>            set popover height (e.g. oc-ui height 40)
+#   oc-ui size <W> <H>            set both
+#   oc-ui preset <s|m|l|xl>       s=20x28 m=24x32 l=30x40 xl=36x48
+#   oc-ui badge <ctx|img|cost> <on|off>
+#   oc-ui revert                  back to the pristine (unpatched) app
+#
+# Every change re-runs the idempotent patcher (~15s: extract, patch, repack,
+# integrity re-stamp, re-sign) and drops a notification reminding you to
+# restart OpenCode - the CSS ships inside the app bundle, so a restart is
+# always part of applying a size.
+set -euo pipefail
+
+PATCHER="$HOME/.config/opencode/patches/patch-opencode-desktop-ui.mjs"
+CFG="$HOME/.config/opencode/ui-patch.json"
+
+cfg_field() { # cfg_field <key>
+  /usr/bin/python3 - "$CFG" "$1" <<'PY'
+import json, sys, os
+path, key = sys.argv[1], sys.argv[2]
+try:
+    with open(path) as f:
+        print(json.load(f)[key])
+except Exception:
+    print("-")
+PY
+}
+
+set_field() { # set_field <key> <value>
+  /usr/bin/python3 - "$CFG" "$1" "$2" <<'PY'
+import json, sys, os
+path, key, val = sys.argv[1], sys.argv[2], sys.argv[3]
+cfg = {}
+try:
+    with open(path) as f:
+        cfg = json.load(f)
+except Exception:
+    pass
+if isinstance(val, str) and val in ("true", "false"):
+    cfg[key] = val == "true"
+else:
+    try:
+        cfg[key] = float(val) if "." in str(val) else int(val)
+    except ValueError:
+        cfg[key] = val
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+PY
+}
+
+notify() { # notify <title> <msg>
+  /usr/bin/osascript -e "display notification \"$2\" with title \"$1\"" 2>/dev/null || true
+}
+
+apply() { # apply <description>
+  echo "Applying ($1)..."
+  node "$PATCHER" || { echo "PATCH FAILED - app bundle left at its previous (working) state"; exit 1; }
+  notify "OpenCode UI" "$1 - restart OpenCode (Cmd+Q) to see it"
+  echo "Restart OpenCode (Cmd+Q, reopen) to load it."
+}
+
+cmd="${1:-status}"
+case "$cmd" in
+  status)
+    echo "config file: $CFG"
+    echo "  popoverWidthRem:  $(cfg_field popoverWidthRem)"
+    echo "  popoverHeightRem: $(cfg_field popoverHeightRem)"
+    echo "  badgeContext:     $(cfg_field badgeContext)"
+    echo "  badgeImage:       $(cfg_field badgeImage)"
+    echo "  badgeCost:        $(cfg_field badgeCost)"
+    echo "presets: s=20x28  m=24x32  l=30x40  xl=36x48"
+    ;;
+  width)    set_field popoverWidthRem "$2";  apply "popover width ${2}rem" ;;
+  height)   set_field popoverHeightRem "$2"; apply "popover height ${2}rem" ;;
+  size)     set_field popoverWidthRem "$2"; set_field popoverHeightRem "$3"; apply "popover ${2}x${3}rem" ;;
+  preset)
+    case "${2:-}" in
+      s)  set_field popoverWidthRem 20; set_field popoverHeightRem 28 ;;
+      m)  set_field popoverWidthRem 24; set_field popoverHeightRem 32 ;;
+      l)  set_field popoverWidthRem 30; set_field popoverHeightRem 40 ;;
+      xl) set_field popoverWidthRem 36; set_field popoverHeightRem 48 ;;
+      *) echo "presets: s m l xl"; exit 1 ;;
+    esac
+    apply "preset $2 ($(cfg_field popoverWidthRem)x$(cfg_field popoverHeightRem))rem"
+    ;;
+  badge)
+    case "$2" in
+      ctx)  key=badgeContext ;;
+      img)  key=badgeImage ;;
+      cost) key=badgeCost ;;
+      *) echo "badges: ctx img cost"; exit 1 ;;
+    esac
+    case "$3" in
+      on|true)  v=true ;;
+      off|false) v=false ;;
+      *) echo "on|off"; exit 1 ;;
+    esac
+    set_field "$key" "$v"
+    apply "badge $2 $3"
+    ;;
+  revert) node "$PATCHER" --revert && notify "OpenCode UI" "reverted to pristine app - restart OpenCode" ;;
+  *) grep '^#   oc-ui' "$0" | sed 's/^# *//'; exit 1 ;;
+esac

@@ -160,12 +160,17 @@ token lines, and can remind you about provider low-quality time windows.
 - All of them were extracted from daily personal use; they are plain-reading
   single files on purpose - read before you install.
 
+## desktop-patch: control the desktop app itself
+
+[desktop-patch/](desktop-patch/) holds an idempotent patcher for the
+OpenCode **desktop app** (macOS): model-picker sizing + row info badges,
+colored session titles (renders this repo's session-size tags in color),
+and a native **Plugins** menu built from a JSON registry - the control
+surface for this whole plugin set. See
+[desktop-patch/README.md](desktop-patch/README.md).
+
 ## Related work
 
-- [Qiueyed/opencode-desktop-patch](https://github.com/Qiueyed/opencode-desktop-patch) -
-  idempotent UI patcher for the desktop app: model-picker sizing + row info
-  badges, colored session titles (renders the session-size tags in color),
-  and a registry-driven native Plugins menu
 
 
 - [opencode-vibeguard](https://github.com/inkdust2021/opencode-vibeguard) - text
