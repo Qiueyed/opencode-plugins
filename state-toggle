@@ -1,0 +1,34 @@
+#!/bin/bash
+# state-toggle <key> - toggle a boolean in state/state.json (the Plugins-menu
+# checkbox backend). Atomic via temp file + rename.
+#
+#   state-toggle visionGuardBypass
+#   state-toggle peakBannerDisabled on|off
+set -euo pipefail
+D="$HOME/.config/opencode"
+KEY="${1:-}"
+MODE="${2:-toggle}"
+case "$KEY" in
+  ""|*[!A-Za-z0-9_]*) echo "usage: state-toggle <key> [toggle|on|off]"; exit 1 ;;
+esac
+mkdir -p "$D/state"
+python3 - "$D/state/state.json" "$KEY" "$MODE" <<'PY'
+import json, os, sys
+path, key, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+cfg = {}
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+cur = cfg.get(key) is True
+new = (not cur) if mode == "toggle" else (mode == "on")
+cfg[key] = new
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+os.replace(tmp, path)
+print(f"{key} = {new}")
+PY

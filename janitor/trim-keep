@@ -1,18 +1,27 @@
 #!/bin/bash
-# trim-keep <nn> - set the keep count used by the session menu's
-# "Trim old messages" item (janitor resolves bare ⏳TRIM markers to this
-# number at close). Written for the Plugins-menu radio group; harmless to
-# run from a shell. Bounds: 1..500.
-N="$1"
+# trim-keep <nn> - set sessionTrimKeep in state/state.json (the janitor resolves
+# bare â³TRIM markers to this number at close). Atomic write; bounds 1..500.
+N="${1:-}"
 case "$N" in ''|*[!0-9]*) echo "usage: trim-keep <nn>"; exit 1 ;; esac
 [ "$N" -lt 1 ] && N=1
 [ "$N" -gt 500 ] && N=500
 D="$HOME/.config/opencode"
-printf '%s\n' "$N" > "$D/state/trim-keep.txt"
-for m in "$D"/state/.trim-keep-*; do
-  [ -e "$m" ] || continue
-  [ "$m" = "$D/.trim-keep-$N" ] && continue
-  rm -f "$m"
-done
-touch "$D/state/.trim-keep-$N"
-echo "session trim keep = $N (applies at the next quit on marked sessions)"
+mkdir -p "$D/state"
+python3 - "$D/state/state.json" "$N" <<'PY'
+import json, os, sys
+path, n = sys.argv[1], int(sys.argv[2])
+cfg = {}
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+cfg["sessionTrimKeep"] = n
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+os.replace(tmp, path)
+PY
+echo "session trim keep = $N (state.json; applies at the next quit on marked sessions)"

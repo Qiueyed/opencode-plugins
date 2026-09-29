@@ -69,6 +69,7 @@ const MB_MARKER_END = "/* == end opencode-model-badges-patch == */";
 const MENU_MARKER_START = "/* == opencode-plugins-menu-patch";
 const MENU_MARKER_END = "/* == end opencode-plugins-menu-patch == */";
 const REGISTRY_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "plugins-menu.json");
+const STATE_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "state", "state.json");
 
 // Picker popover size. Tweak these and re-run to resize.
 // Overridable WITHOUT editing this file: ~/.config/opencode/ui-patch.json
@@ -633,7 +634,15 @@ function ocMenuItems(entries, MI) {
           }
         },
       };
-      if (typeof e.stateFile === "string" && e.stateFile) {
+      if (typeof e.stateKey === "string" && e.stateKey) {
+        opts.type = "checkbox";
+        try {
+          const parsed = JSON.parse(String(spawnSync("/bin/cat", [${JSON.stringify(STATE_FILE)}]).stdout));
+          opts.checked = parsed[e.stateKey] === (e.stateValue === undefined ? true : e.stateValue);
+        } catch {
+          opts.checked = false;
+        }
+      } else if (typeof e.stateFile === "string" && e.stateFile) {
         opts.type = "checkbox";
         opts.checked = ocFileExists(e.stateFile);
       }
@@ -742,9 +751,8 @@ function seedRegistry() {
     items: [
       {
         label: "Vision-guard: allow image reads (bypass)",
-        command:
-          "if test -e \"$HOME/.config/opencode/state/vision-guard.off\"; then rm \"$HOME/.config/opencode/state/vision-guard.off\"; else touch \"$HOME/.config/opencode/state/vision-guard.off\"; fi",
-        stateFile: home + "/.config/opencode/state/vision-guard.off",
+        command: "sh \"" + path.join(here, "state-toggle") + "\" visionGuardBypass",
+        stateKey: "visionGuardBypass",
         requireFile: plug("vision-guard.ts"),
       },
       {

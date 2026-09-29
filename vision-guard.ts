@@ -38,13 +38,20 @@
 // file - the loader calls every exported function of a plugin module.
 import type { Plugin } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
 const CACHE_TTL_MS = 10 * 60_000
 const AUDIT_LOG = path.join(process.env.XDG_DATA_HOME || path.join(process.env.HOME || ".", ".local", "share"), "opencode", "vision-guard.log")
-const BYPASS_MARKER = path.join(process.env.HOME || ".", ".config", "opencode", "state", "vision-guard.off")
+const STATE_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "state", "state.json")
+const bypassEnabled = (): boolean => {
+  try {
+    return JSON.parse(readFileSync(STATE_FILE, "utf8")).visionGuardBypass === true
+  } catch {
+    return false
+  }
+}
 const NOTICE_FILE = path.join(tmpdir(), `vision-guard-blocked-${process.pid}.txt`)
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|bmp|tiff?|heic|heif|avif)$/i
 const INSPECT_MAXDIM = 1600
@@ -228,9 +235,7 @@ export const visionGuard = (async ({ client }) => {
 
         let bypass = setting("OPENCODE_VISION_GUARD", "") === "allow"
         if (!bypass) {
-          try {
-            bypass = existsSync(BYPASS_MARKER)
-          } catch {}
+          bypass = bypassEnabled()
         }
         if (bypass) {
           logLine(`BYPASSED ${fp}`)

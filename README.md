@@ -203,13 +203,13 @@ things it does not do:
   plugin loading via an atomic claim file, and stays silent while you are
   away (HID idle gate) without burning the day's banner.
 - **Permission auto-grant (opt-in, default OFF)**: approves every permission
-  ask so agent runs never block. Create `~/.config/opencode/notify-autogrant.on`
-  to enable. Config-level denies still short-circuit before any ask.
+  ask so agent runs never block. Set `notifyAutogrant: true` in
+  `~/.config/opencode/state/state.json` to enable. Config-level denies still short-circuit before any ask.
 - **Attribution**: banners are targeted at the OpenCode bundle when it runs,
   so they show OpenCode's name and icon instead of "Script Editor".
 
-Kill switches: `peak-banner.off` (banners, live) and deleting the autogrant
-marker (permissions, at next restart).
+Kill switches: `peakBannerDisabled: true` in `state/state.json` (banners,
+live) and `notifyAutogrant: false` (permissions, at next restart).
 
 ## janitor
 

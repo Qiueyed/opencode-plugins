@@ -92,7 +92,14 @@ const PEAK_PROVIDERS: PeakProvider[] = [
 const AUTH_JSON = homedir() + "/.local/share/opencode/auth.json"
 // Kill switch: file present = peak banners disabled. Checked per poll, so
 // the toggle is live without a restart (wire it to a menu checkbox).
-const PEAK_OFF_MARKER = homedir() + "/.config/opencode/state/peak-banner.off"
+const STATE_FILE = homedir() + "/.config/opencode/state/state.json"
+const readState = (): Record<string, unknown> => {
+  try {
+    return JSON.parse(readFileSync(STATE_FILE, "utf8")) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
 // Cross-instance claim files: the desktop app instantiates the plugin once
 // per project/window (several instances observed), each firing its own
 // peak banner at window open. Per provider: the first instance to atomically
@@ -248,7 +255,7 @@ export const Notify: Plugin = async ({ client, project, directory }) => {
   // takes effect at the next app restart.
   const activeProviders = PEAK_PROVIDERS.filter(userHasProvider)
   const peakCheck = async () => {
-    if (existsSync(PEAK_OFF_MARKER)) return
+    if (readState().peakBannerDisabled === true) return
     for (const p of activeProviders) {
       if (!inWindow(p)) continue
       const key = windowKey(p)
@@ -279,7 +286,7 @@ export const Notify: Plugin = async ({ client, project, directory }) => {
   // after 300ms, so auto-granted asks stay silent.
   // Reply failures (and only failures) log to DBG_LOG; a past silent
   // failure is why the dual reply-shape fallback exists.
-  if (!existsSync(AUTOGRANT_ON)) return {}
+  if (readState().notifyAutogrant !== true) return {}
 
   return {
     event: async (input) => {

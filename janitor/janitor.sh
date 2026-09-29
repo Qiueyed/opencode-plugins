@@ -185,7 +185,9 @@ if [ -n "$UI_MARKED" ]; then
     case "$KEEP" in
       ''|*[!0-9]*)
         # bare ⏳TRIM marker: resolve from the Plugins-menu setting
-        KEEP=$(cat "$HOME/.config/opencode/state/trim-keep.txt" 2>/dev/null | tr -d '[:space:]')
+        KEEP=$(python3 -c 'import json,sys
+try: print(int(json.load(open(sys.argv[1])).get("sessionTrimKeep", 15)))
+except Exception: print(15)' "$HOME/.config/opencode/state/state.json" 2>/dev/null | tr -d '[:space:]')
         case "$KEEP" in ''|*[!0-9]*) KEEP=15 ;; esac
         ;;
     esac
