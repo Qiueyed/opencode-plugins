@@ -116,7 +116,7 @@ function resign() {
 // behavior is wrapped so a bug degrades to the stock message, never a crash.
 // ---------------------------------------------------------------------------
 const HELPERS = `
-/* ec-helpers-v2 */
+/* ec-helpers-v2.1 */
 function editLineAt(content, idx) {
   let lineNo = 1;
   for (let j = 0; j < idx && j < content.length; j++) {
@@ -161,7 +161,7 @@ function editGrouped(scored) {
       const pct = Math.round(s * 100) + "%";
       const nums = g.items.map(function (x) { return "L" + x.i; }).join(", ");
       if (s >= 0.999) {
-        parts.push(nums + " (" + pct + ")");
+        parts.push(nums + " (" + pct + " after trim - the text matches, the indentation does not)");
         continue;
       }
       if (g.items.length === 1 && g.items[0].text) {
@@ -180,6 +180,11 @@ function editGrouped(scored) {
 
 function editAmbiguityReport(content, oldString) {
   try {
+    // Degenerate needles: suggesting replaceAll on them would mass-replace
+    // thousands of trivial matches (a model WILL obey that hint).
+    if (!oldString.trim()) {
+      return "oldString is empty or whitespace-only; provide the actual text to replace.";
+    }
     const idxs = [];
     let i = content.indexOf(oldString);
     while (i !== -1 && idxs.length < 2000) {
@@ -191,10 +196,11 @@ function editAmbiguityReport(content, oldString) {
     if (idxs.length > 12) {
       const n = idxs.length + (hitCap ? "+" : "");
       const span = editLineAt(content, idxs[0]) + "-" + editLineAt(content, idxs[idxs.length - 1]);
-      return (
-        "Found " + n + " matches for oldString (lines " + span + "). " +
-        "Pass replaceAll: true to replace every occurrence, or add surrounding lines to target one."
-      );
+      const hint =
+        oldString.trim().length < 4
+          ? "oldString is too short to be unique; include more surrounding lines."
+          : "Pass replaceAll: true to replace every occurrence, or add surrounding lines to target one.";
+      return "Found " + n + " matches for oldString (lines " + span + "). " + hint;
     }
     if (idxs.length > 1) {
       return (
@@ -278,6 +284,9 @@ function editNotFoundReport(content, oldString) {
       if (top.length) hint = "\\nClosest regions: " + editGrouped(top);
     }
   } catch (e) {}
+  if (content && typeof content === "string" && content.indexOf("\\r\\n") !== -1 && String(oldString).indexOf("\\r") === -1) {
+    hint += "\\n(the file uses CRLF line endings - oldString must include the \\\\r characters)";
+  }
   return (
     "Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings." +
     hint
@@ -313,17 +322,23 @@ function findTargetFile(workdir) {
 function patchFile(file, workdir) {
   let code = fs.readFileSync(file, "utf8");
   if (code.includes("editAmbiguityReport")) {
-    if (code.includes("ec-helpers-v2")) {
-      console.log("already patched (v2):", file);
+    if (code.includes("ec-helpers-v2.1")) {
+      console.log("already patched (v2.1):", file);
       return false;
     }
-    // v1 -> v2 upgrade: swap the injected helper span in place. The v1
-    // layout is deterministic (HELPERS injected right before the injection
-    // anchor), so the span from the first helper to the anchor is exact.
-    const start = code.indexOf("function editCandidateLines");
+    // v1 / v2.0 -> v2.1 upgrade: swap the injected helper span in place. All
+    // prior layouts are deterministic (helpers injected right before the
+    // injection anchor), so the span from the first helper to the anchor is
+    // exact. Marker check must be exact - "v2" is a substring of "v2.1".
+    const startCandidates = ["/* ec-helpers-v2 */", "function editLineAt", "function editCandidateLines"];
+    let start = -1;
+    for (const c of startCandidates) {
+      start = code.indexOf(c);
+      if (start !== -1) break;
+    }
     const end = code.indexOf("function isDisproportionateMatch");
     if (start === -1 || end === -1 || end < start) {
-      throw new Error("v1 helper span not found for upgrade; refusing to patch blindly");
+      throw new Error("injected helper span not found for upgrade; refusing to patch blindly");
     }
     code = code.slice(0, start) + HELPERS + code.slice(end);
     fs.writeFileSync(file, code);
