@@ -23,7 +23,7 @@
 //   OPENCODE_VISION_GUARD_MODEL            vision model tag (default qwen3-vl:8b)
 //   OPENCODE_VISION_GUARD_POLICY           fail-closed (default) | fail-open
 //   OPENCODE_VISION_GUARD_TIMEOUT_MS       inspection timeout (default 90000)
-//   Bypass without env: marker file ~/.config/opencode/state/vision-guard.off
+//   Bypass without env: state/state.json key visionGuardBypass = true (menu checkbox)
 //   (touch to arm, rm to re-enable). Every bypass is written to the audit log.
 //
 // Scope: the "read" tool on image extensions. Audit trail:
@@ -217,7 +217,7 @@ function writeNotice(originalPath: string, v: Verdict) {
     `If the inspector is not set up yet, install Ollama + a vision model, or set`,
     `  OPENCODE_VISION_GUARD_POLICY=fail-open   (allow reads when the inspector is down)`,
     `  OPENCODE_VISION_GUARD=allow              (disable the guard)`,
-    `Temporary bypass marker: touch ~/.config/opencode/state/vision-guard.off`,
+    `Temporary bypass: state.json visionGuardBypass = true (Plugins menu checkbox)`,
     `Audit log: ${AUDIT_LOG}`,
   ].join("\n")
   try {

@@ -16,7 +16,7 @@
  *   auto-replies "once" via the session permissions API - the same
  *   call the desktop's own auto-accept uses. DANGEROUS BY DESIGN: it
  *   approves every ask that reaches it. Enable ONLY by creating
- *   ~/.config/opencode/state/notify-autogrant.on. Config-level denies
+ *   state/state.json key notifyAutogrant. Config-level denies
  *   (sudo, rm -rf /*) short-circuit in the core permission service
  *   BEFORE any ask is published, so guardrails and per-agent denies
  *   still win over this.
@@ -36,7 +36,7 @@
  * local DST cannot shift the window; off-peak is ~0.5x. Add future
  * providers ONLY with VERIFIED window hours - most coding plans publish
  * no time-of-day schedule at all.
- * Toggle: a kill-switch marker file (peak-banner.off) is checked per poll,
+ * Toggle: the peakBannerDisabled key in state/state.json is checked per poll,
  * so the banner can be disabled live; wire it to a menu checkbox.
  *
  * Delivery: osascript, but TARGETED at the OpenCode bundle when it runs so
@@ -110,7 +110,6 @@ const PEAK_KEY_FILE = homedir() + "/.config/opencode/state/.peak-banner-day"
 // Opt-in marker for the permission auto-grant: file present = ON. Default is
 // OFF because this approves every ask. Local installs that want it create the
 // marker; the desktop toggle contract is a menu checkbox writing this file.
-const AUTOGRANT_ON = homedir() + "/.config/opencode/state/notify-autogrant.on"
 
 // Resting-user gate: if there has been no keyboard/mouse input for this
 // long, the user is away or asleep -> suppress the peak banner (and its
@@ -279,7 +278,7 @@ export const Notify: Plugin = async ({ client, project, directory }) => {
   setInterval(peakLoop, PEAK_CHECK_MS).unref()
 
   // Opt-in auto-grant: approve every permission ask so agent runs never
-  // block. DEFAULT OFF - create ~/.config/opencode/state/notify-autogrant.on to
+  // block. DEFAULT OFF - set state/state.json notifyAutogrant to true to
   // enable (restart to apply). Denies from config/agent rules never reach
   // this point, so they are unaffected.
   // The notifier plugin (>=0.3.0) only alerts on asks still pending
