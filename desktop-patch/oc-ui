@@ -16,7 +16,7 @@
 set -euo pipefail
 
 PATCHER="$HOME/.config/opencode/patches/patch-opencode-desktop-ui.mjs"
-CFG="$HOME/.config/opencode/ui-patch.json"
+CFG="$HOME/.config/opencode/state/ui-patch.json"
 
 cfg_field() { # cfg_field <key>
   /usr/bin/python3 - "$CFG" "$1" <<'PY'
