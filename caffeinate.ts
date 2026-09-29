@@ -25,6 +25,23 @@
  */
 import type { Plugin } from "@opencode-ai/plugin"
 import { spawn, type ChildProcess } from "node:child_process"
+import { readFileSync } from "node:fs"
+import path from "node:path"
+
+// Desktop-app users often cannot export env vars before launch, so the
+// option can also live in ~/.config/opencode/caffeinate.settings.json as
+// {"OPENCODE_CAFFEINATE": "off"}. Precedence: env var > settings file.
+const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "caffeinate.settings.json")
+function setting(key: string, fallback: string): string {
+  const envVal = process.env[key]
+  if (envVal !== undefined && envVal !== "") return envVal
+  try {
+    const v = JSON.parse(readFileSync(SETTINGS_FILE, "utf8"))?.[key]
+    if (typeof v === "string" && v !== "") return v
+    if (typeof v === "boolean" || typeof v === "number") return String(v)
+  } catch {}
+  return fallback
+}
 
 const ASSERT_WINDOW_S = 1800 // hard expiry per caffeinate run (crash insurance)
 const RESPAWN_AGE_S = 900 // respawn the assertion if the running one is older than this
@@ -34,7 +51,7 @@ export const Caffeinate: Plugin = async ({ client }) => {
   const active = new Map<string, true>() // sessionID -> true, while busy/retry
   let proc: ChildProcess | null = null
   let spawnedAt = 0
-  let available = process.platform === "darwin" && process.env.OPENCODE_CAFFEINATE !== "off"
+  let available = process.platform === "darwin" && setting("OPENCODE_CAFFEINATE", "") !== "off"
   let lastToastAt = 0
 
   const log = async (level: "debug" | "info" | "error" | "warn", message: string) => {

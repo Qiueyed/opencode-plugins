@@ -40,11 +40,28 @@
  */
 import type { Plugin } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
+import path from "node:path"
 
-const DISABLED = process.env.OPENCODE_SESSION_SIZE === "off"
-const REFRESH_MS = Number(process.env.OPENCODE_SESSION_SIZE_INTERVAL_MS) || 10 * 60 * 1000
+// Desktop-app users often cannot export env vars before launch, so the
+// options can also live in ~/.config/opencode/session-size.settings.json as
+// {"OPENCODE_SESSION_SIZE_INTERVAL_MS": 300000, ...}. Precedence: env var >
+// settings file > default. Read once at startup.
+const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "session-size.settings.json")
+function setting(key: string, fallback: string): string {
+  const envVal = process.env[key]
+  if (envVal !== undefined && envVal !== "") return envVal
+  try {
+    const v = JSON.parse(readFileSync(SETTINGS_FILE, "utf8"))?.[key]
+    if (typeof v === "string" && v !== "") return v
+    if (typeof v === "boolean" || typeof v === "number") return String(v)
+  } catch {}
+  return fallback
+}
+
+const DISABLED = setting("OPENCODE_SESSION_SIZE", "") === "off"
+const REFRESH_MS = Number(setting("OPENCODE_SESSION_SIZE_INTERVAL_MS", "600000")) || 10 * 60 * 1000
 const STARTUP_DELAY_MS = 5000
 const TAG_RE = /^\s*[\d.]+[GMKB]\s*\u00B7\s*/u
 const TAG_RE_LEGACY = /^\[[\d.]+[GMKB]\]\s*/
@@ -52,7 +69,7 @@ const TAG_RE_EMOJI = /^\s*(?:\u{1F534}|\u{1F7E0}|\u{1F7E2})\s*[\d.]+[GMKB]\s*\u0
 const SEP = " \u00B7 "
 
 const DB_PATH =
-  process.env.OPENCODE_SESSION_SIZE_DB ||
+  setting("OPENCODE_SESSION_SIZE_DB", "") ||
   (process.env.XDG_DATA_HOME || homedir() + "/.local/share") + "/opencode/opencode.db"
 
 // Single-line on purpose: one aggregate SELECT, three COALESCE'd subselects.

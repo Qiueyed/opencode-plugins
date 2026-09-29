@@ -36,10 +36,26 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-const DISABLED = process.env.OPENCODE_IMAGE_SHRINK === "off"
-const MAXDIM = Number(process.env.OPENCODE_IMAGE_SHRINK_MAXDIM) || 1600
-const QUALITY = Number(process.env.OPENCODE_IMAGE_SHRINK_QUALITY) || 80
-const MIN_BYTES = (Number(process.env.OPENCODE_IMAGE_SHRINK_MIN_KB) || 300) * 1024
+// Desktop-app users often cannot export env vars before launch, so every
+// option can also live in ~/.config/opencode/image-shrink.settings.json as
+// {"OPENCODE_IMAGE_SHRINK_MAXDIM": 1280, ...}. Precedence: env var >
+// settings file > default. Read once at startup.
+const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "image-shrink.settings.json")
+function setting(key: string, fallback: string): string {
+  const envVal = process.env[key]
+  if (envVal !== undefined && envVal !== "") return envVal
+  try {
+    const v = JSON.parse(readFileSync(SETTINGS_FILE, "utf8"))?.[key]
+    if (typeof v === "string" && v !== "") return v
+    if (typeof v === "boolean" || typeof v === "number") return String(v)
+  } catch {}
+  return fallback
+}
+
+const DISABLED = setting("OPENCODE_IMAGE_SHRINK", "") === "off"
+const MAXDIM = Number(setting("OPENCODE_IMAGE_SHRINK_MAXDIM", "1600")) || 1600
+const QUALITY = Number(setting("OPENCODE_IMAGE_SHRINK_QUALITY", "80")) || 80
+const MIN_BYTES = (Number(setting("OPENCODE_IMAGE_SHRINK_MIN_KB", "300")) || 300) * 1024
 // Hook-level gate measured on the BASE64 data URL (4/3 of raw bytes): the
 // gate sits above MIN_BYTES so a freshly shrunk image can never re-enter
 // the shrink path - no second-generation JPEG loss.

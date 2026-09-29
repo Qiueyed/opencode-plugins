@@ -25,12 +25,27 @@
  *   OPENCODE_ERROR_LOG                     archive path (default shown above)
  */
 import type { Plugin } from "@opencode-ai/plugin"
-import { appendFileSync } from "node:fs"
+import { appendFileSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
+import path from "node:path"
 
-const OUT_LOG =
-  process.env.OPENCODE_ERROR_LOG ||
-  homedir() + "/.config/opencode/error-diagnosis.jsonl"
+// Desktop-app users often cannot export env vars before launch, so the
+// option can also live in ~/.config/opencode/error-root-cause.settings.json
+// as {"OPENCODE_ERROR_LOG": "/path/log.jsonl"}. Precedence: env var >
+// settings file > default.
+const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "error-root-cause.settings.json")
+function setting(key: string, fallback: string): string {
+  const envVal = process.env[key]
+  if (envVal !== undefined && envVal !== "") return envVal
+  try {
+    const v = JSON.parse(readFileSync(SETTINGS_FILE, "utf8"))?.[key]
+    if (typeof v === "string" && v !== "") return v
+    if (typeof v === "boolean" || typeof v === "number") return String(v)
+  } catch {}
+  return fallback
+}
+
+const OUT_LOG = setting("OPENCODE_ERROR_LOG", homedir() + "/.config/opencode/error-diagnosis.jsonl")
 const DEDUPE_MS = 10_000
 const TOAST_MAX = 300
 

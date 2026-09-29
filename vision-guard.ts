@@ -42,10 +42,6 @@ import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-const OLLAMA_URL = (process.env.OPENCODE_VISION_GUARD_URL || "http://127.0.0.1:11434").replace(/\/+$/, "")
-const MODEL = process.env.OPENCODE_VISION_GUARD_MODEL || "qwen3-vl:8b"
-const POLICY = (process.env.OPENCODE_VISION_GUARD_POLICY || "fail-closed").toLowerCase()
-const TIMEOUT_MS = Number(process.env.OPENCODE_VISION_GUARD_TIMEOUT_MS) || 90_000
 const CACHE_TTL_MS = 10 * 60_000
 const AUDIT_LOG = path.join(process.env.XDG_DATA_HOME || path.join(process.env.HOME || ".", ".local", "share"), "opencode", "vision-guard.log")
 const BYPASS_MARKER = path.join(process.env.HOME || ".", ".config", "opencode", "vision-guard.off")
@@ -53,6 +49,31 @@ const NOTICE_FILE = path.join(tmpdir(), `vision-guard-blocked-${process.pid}.txt
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|bmp|tiff?|heic|heif|avif)$/i
 const INSPECT_MAXDIM = 1600
 const INSPECT_QUALITY = 80
+
+// Desktop-app users often cannot export env vars before launch, so every
+// option can also live in a settings file. Precedence: env var > settings
+// file > default. URL/model/timeout are read once at startup; the POLICY
+// setting is read on every inspection failure, so flipping fail-open in the
+// file works mid-session without a restart (the bypass marker and the
+// OPENCODE_VISION_GUARD=allow check are also evaluated live).
+const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "vision-guard.settings.json")
+function setting(key: string, fallback: string): string {
+  const envVal = process.env[key]
+  if (envVal !== undefined && envVal !== "") return envVal
+  try {
+    const v = JSON.parse(readFileSync(SETTINGS_FILE, "utf8"))?.[key]
+    if (typeof v === "string" && v !== "") return v
+    if (typeof v === "boolean" || typeof v === "number") return String(v)
+  } catch {}
+  return fallback
+}
+
+const OLLAMA_URL = setting("OPENCODE_VISION_GUARD_URL", "http://127.0.0.1:11434").replace(/\/+$/, "")
+const MODEL = setting("OPENCODE_VISION_GUARD_MODEL", "qwen3-vl:8b")
+const TIMEOUT_MS = Number(setting("OPENCODE_VISION_GUARD_TIMEOUT_MS", "90000")) || 90_000
+function policy(): string {
+  return setting("OPENCODE_VISION_GUARD_POLICY", "fail-closed").toLowerCase()
+}
 
 const PROMPT = [
   "You are a local privacy screen deciding if this image may be sent to a REMOTE AI API.",
@@ -167,7 +188,7 @@ async function inspectImage(filePath: string): Promise<Verdict> {
     return v
   } catch (e: any) {
     const why = e?.name === "AbortError" ? "local inspection timed out" : String(e?.message ?? e)
-    if (POLICY === "fail-open") {
+    if (policy() === "fail-open") {
       logLine(`GUARD_ERROR_FAIL_OPEN ${filePath} :: ${why}`)
       return { sensitive: false, categories: ["guard-error"], reason: `inspector unavailable, fail-open policy: ${why}` }
     }
@@ -205,7 +226,7 @@ export const visionGuard = (async ({ client }) => {
         const fp = typeof output?.args?.filePath === "string" ? output.args.filePath : ""
         if (!fp || !IMAGE_RE.test(fp)) return
 
-        let bypass = process.env.OPENCODE_VISION_GUARD === "allow"
+        let bypass = setting("OPENCODE_VISION_GUARD", "") === "allow"
         if (!bypass) {
           try {
             bypass = existsSync(BYPASS_MARKER)

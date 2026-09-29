@@ -23,10 +23,28 @@
 //   OPENCODE_SESSION_GUARD_WINDOWS         UTC windows "6-10,14-18" (default: none)
 //   OPENCODE_SESSION_GUARD_WINDOW_THROTTLE min ms between window toasts (default 1800000)
 
-const WARN_TOKENS = Number(process.env.OPENCODE_SESSION_GUARD_WARN) || 150000
-const CRIT_TOKENS = Number(process.env.OPENCODE_SESSION_GUARD_CRIT) || 200000
-const WINDOW_THROTTLE_MS = Number(process.env.OPENCODE_SESSION_GUARD_WINDOW_THROTTLE) || 30 * 60 * 1000
-const WINDOWS = (process.env.OPENCODE_SESSION_GUARD_WINDOWS || "")
+// Desktop-app users often cannot export env vars before launch, so every
+// option can also live in ~/.config/opencode/session-guard.settings.json as
+// {"OPENCODE_SESSION_GUARD_WINDOWS": "6-10,14-18", ...}. Precedence: env var
+// > settings file > defaults below. Read once at startup.
+import path from "node:path"
+import fs from "node:fs"
+const SETTINGS_FILE = path.join(process.env.HOME || ".", ".config", "opencode", "session-guard.settings.json")
+function setting(key, fallback) {
+  const envVal = process.env[key]
+  if (envVal !== undefined && envVal !== "") return envVal
+  try {
+    const v = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"))?.[key]
+    if (typeof v === "string" && v !== "") return v
+    if (typeof v === "boolean" || typeof v === "number") return String(v)
+  } catch {}
+  return fallback
+}
+
+const WARN_TOKENS = Number(setting("OPENCODE_SESSION_GUARD_WARN", "150000"))
+const CRIT_TOKENS = Number(setting("OPENCODE_SESSION_GUARD_CRIT", "200000"))
+const WINDOW_THROTTLE_MS = Number(setting("OPENCODE_SESSION_GUARD_WINDOW_THROTTLE", String(30 * 60 * 1000)))
+const WINDOWS = setting("OPENCODE_SESSION_GUARD_WINDOWS", "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean)

@@ -29,6 +29,30 @@ curl -fsSL -o ~/.config/opencode/plugins/vision-guard.ts \
 so know what you install. No npm packages yet; each file is meant to be
 readable in one sitting before you trust it.
 
+## Configuring (terminal AND desktop app)
+
+Every option is env-first, but **desktop-app users usually cannot export
+env vars before launch**. So every plugin ALSO reads a settings file:
+
+```
+~/.config/opencode/<plugin-name>.settings.json
+```
+
+e.g. `~/.config/opencode/vision-guard.settings.json`:
+
+```json
+{
+  "OPENCODE_VISION_GUARD_POLICY": "fail-open",
+  "OPENCODE_VISION_GUARD_MODEL": "qwen3-vl:8b"
+}
+```
+
+Precedence: environment variable > settings file > built-in default.
+vision-guard additionally re-reads its policy (and evaluates the bypass
+marker) on every image read, so flipping `fail-open` in the settings file
+works mid-session without a restart - exactly what you want when your local
+Ollama or vision model dies unexpectedly.
+
 ## vision-guard
 
 Every model read of an image file (`read` tool on image extensions) is
