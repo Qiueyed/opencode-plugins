@@ -38,7 +38,7 @@
 // file - the loader calls every exported function of a plugin module.
 import type { Plugin } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -91,7 +91,33 @@ const PROMPT = [
   '{"sensitive": true|false, "categories": ["..."], "reason": "one short line"}',
 ].join(" ")
 
-type Verdict = { sensitive: boolean; categories: string[]; reason: string }
+type Verdict = {
+  sensitive: boolean
+  categories: string[]
+  reason: string
+  action?: "allow" | "redact" | "block"
+  strip?: "none" | "top" | "bottom" | "left" | "right"
+  fraction?: number
+  utility?: "high" | "low"
+}
+
+const STRIPS = ["none", "top", "bottom", "left", "right"]
+
+// v2 prompt (EXPERIMENTAL redact mode): the judge proposes a sensitive EDGE
+// strip (<=50% of one side) that can be cropped away, plus a utility call on
+// whether the remaining image is still worth its tokens. Strips, not boxes:
+// qwen3-vl boxes drift, and sips can only crop - conservative beats clever.
+const PROMPT_V2 = [
+  "You are a local privacy screen deciding how this image may be sent to a REMOTE AI API.",
+  "Mark SENSITIVE if it shows: credentials (API keys, tokens, passwords, login forms, OTP), private messages/chats/email, financial data, government IDs, medical info, explicit content, or anything a privacy-conscious user would not want leaving their machine.",
+  "If SENSITIVE and the sensitive content sits entirely within ONE edge region (top/bottom/left/right) covering at most 50% of that dimension, choose redact: name the strip and the fraction (0-50, round UP to be safe).",
+  "If sensitive content spans the middle or multiple edges, choose block.",
+  "If NOT sensitive, choose allow.",
+  "utility: high if the NON-sensitive remainder is still informative (code, UI, charts, documents); low if it is mostly empty desktop, wallpaper, or noise not worth its tokens.",
+  "Do NOT quote or reproduce any sensitive text you see.",
+  "Answer with STRICT JSON only, no markdown, no prose:",
+  '{"sensitive": true|false, "action": "allow"|"redact"|"block", "strip": "none"|"top"|"bottom"|"left"|"right", "fraction": 0-50, "utility": "high"|"low", "categories": ["..."], "reason": "one short line"}',
+].join(" ")
 
 const cache = new Map<string, { v: Verdict; t: number }>()
 
@@ -101,9 +127,9 @@ function logLine(s: string) {
   } catch {}
 }
 
-const sips = (args: string[]): Promise<void> =>
+const sips = (args: string[]): Promise<string> =>
   new Promise((resolve, reject) => {
-    execFile("sips", args, (err) => (err ? reject(err) : resolve()))
+    execFile("sips", args, (err, stdout) => (err ? reject(err) : resolve(String(stdout || ""))))
   })
 
 // Some vision models emit <think> blocks or markdown fences; merge thinking
@@ -117,17 +143,26 @@ function extractText(msg: any): string {
     .trim()
 }
 
-function parseVerdict(text: string): Verdict | null {
+function parseVerdict(text: string, promptV2: boolean): Verdict | null {
   const m = text.match(/\{[\s\S]*\}/)
   if (m) {
     try {
       const j = JSON.parse(m[0])
       if (typeof j?.sensitive === "boolean") {
-        return {
+        const v: Verdict = {
           sensitive: j.sensitive === true,
           categories: Array.isArray(j.categories) ? j.categories.map(String).slice(0, 5) : [],
           reason: String(j.reason ?? "").slice(0, 200) || "no reason given",
         }
+        if (promptV2) {
+          const strip = STRIPS.includes(j.strip) ? (j.strip as Verdict["strip"]) : "none"
+          const frac = Math.max(0, Math.min(50, Number(j.fraction) || 0))
+          v.action = ["allow", "redact", "block"].includes(j.action) ? j.action : v.sensitive ? "block" : "allow"
+          v.strip = strip
+          v.fraction = frac
+          v.utility = j.utility === "low" ? "low" : "high"
+        }
+        return v
       }
     } catch {}
   }
@@ -137,7 +172,59 @@ function parseVerdict(text: string): Verdict | null {
   return null
 }
 
-async function inspectImage(filePath: string): Promise<Verdict> {
+// Pure decision: mode + verdict -> pass | redact | block. Sliceable for tests.
+const guardOutcome = (v: Verdict, mode: "block" | "redact"): "pass" | "redact" | "block" => {
+  if (!v.sensitive) return "pass"
+  if (mode !== "redact") return "block"
+  if (v.action === "redact" && v.strip && STRIPS.includes(v.strip) && v.strip !== "none" && (v.fraction ?? 0) > 0) {
+    return v.utility === "low" ? "block" : "redact"
+  }
+  return "block"
+}
+
+const redactEnabled = (): boolean => {
+  try {
+    return JSON.parse(readFileSync(STATE_FILE, "utf8")).visionGuardRedact === true
+  } catch {
+    return false
+  }
+}
+
+// Crop out the sensitive edge strip. Implementation: python3 + PIL (present on
+// this machine; sips' --cropOffset silently no-ops when combined with -c, and
+// plain -c is center-only, so sips cannot express edge crops). No PIL ->
+// returns null -> caller blocks (fail closed).
+async function redactImage(filePath: string, strip: NonNullable<Verdict["strip"]>, fraction: number): Promise<string | null> {
+  const f = Math.min(0.5, Math.max(0.05, (fraction + 5) / 100)) // +5% margin, capped 50%
+  const dir = mkdtempSync(path.join(tmpdir(), "vision-guard-redact-"))
+  const out = path.join(dir, `redacted-${Date.now()}.jpg`)
+  const py = path.join(dir, "redact.py")
+  writeFileSync(
+    py,
+    [
+      "import sys",
+      "from PIL import Image",
+      "src, out, strip, f = sys.argv[1], sys.argv[2], sys.argv[3], float(sys.argv[4])",
+      'im = Image.open(src).convert("RGB")',
+      "w, h = im.size",
+      'if strip == "top": box = (0, int(h*f), w, h)',
+      'elif strip == "bottom": box = (0, 0, w, int(h*(1-f)))',
+      'elif strip == "left": box = (int(w*f), 0, w, h)',
+      "else: box = (0, 0, int(w*(1-f)), h)",
+      'im.crop(box).save(out, "JPEG", quality=85)',
+    ].join("\n"),
+  )
+  try {
+    await new Promise<void>((resolve, reject) =>
+      execFile("python3", [py, filePath, out, strip, String(f)], { timeout: 20_000 }, (err) => (err ? reject(err) : resolve())),
+    )
+    return existsSync(out) ? out : null
+  } catch {
+    return null
+  }
+}
+
+async function inspectImage(filePath: string, promptV2: boolean): Promise<Verdict> {
   const st = statSync(filePath)
   const key = `${filePath}:${st.size}:${st.mtimeMs}`
   const hit = cache.get(key)
@@ -179,7 +266,7 @@ async function inspectImage(filePath: string): Promise<Verdict> {
         model: MODEL,
         stream: false,
         options: { temperature: 0 },
-        messages: [{ role: "user", content: PROMPT, images: [b64] }],
+        messages: [{ role: "user", content: promptV2 ? PROMPT_V2 : PROMPT, images: [b64] }],
       }),
       signal: ctrl.signal,
     })
@@ -187,7 +274,7 @@ async function inspectImage(filePath: string): Promise<Verdict> {
       return { sensitive: true, categories: ["guard-error"], reason: `ollama HTTP ${resp.status}` }
     }
     const data: any = await resp.json()
-    const v = parseVerdict(extractText(data?.message))
+    const v = parseVerdict(extractText(data?.message), promptV2)
     if (!v) {
       return { sensitive: true, categories: ["guard-error"], reason: "unparseable local verdict (fail closed)" }
     }
@@ -250,11 +337,28 @@ export const visionGuard = (async ({ client }) => {
         }
         if (!st.isFile()) return
 
-        const v = await inspectImage(fp)
+        const v = await inspectImage(fp, redactEnabled())
+        const mode: "block" | "redact" = redactEnabled() ? "redact" : "block"
+        const outcome = guardOutcome(v, mode)
         logLine(
-          `${v.sensitive ? "BLOCK" : "ALLOW"} ${fp} :: ${v.categories.join(",") || "-"} :: ${v.reason} [${input?.sessionID ?? "?"}]`,
+          `${outcome.toUpperCase()} ${fp} :: ${v.categories.join(",") || "-"} :: ${v.reason} [${input?.sessionID ?? "?"}]`,
         )
-        if (!v.sensitive) return
+        if (outcome === "pass") return
+
+        if (outcome === "redact" && v.strip && v.strip !== "none") {
+          const sanitized = await redactImage(fp, v.strip, v.fraction ?? 0)
+          if (sanitized) {
+            try {
+              await client.tui.showToast({
+                body: { title: "VISION GUARD", message: `Redacted (${v.strip} ${(v.fraction ?? 0) + 5}%): ${v.reason}`.slice(0, 180), variant: "warning" },
+              })
+            } catch {}
+            // Experimental redact: the read runs against the SANITIZED file.
+            if (output && typeof output === "object") (output as any).args.filePath = sanitized
+            return
+          }
+          // redaction failed: fall through to block (fail closed)
+        }
 
         writeNotice(fp, v)
         try {

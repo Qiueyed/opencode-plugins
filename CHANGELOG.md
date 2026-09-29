@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-09-29
+- **vision-guard v2 (experimental redact)**: 3-way judge verdict (allow/redact/block) + utility gate; redaction = PIL edge-strip crop (+5% margin, fail-closed to block on any redaction failure); menu toggle + env mode; 16-case hostile battery. Discovered on the way: sips --cropOffset silently no-ops with -c (center-only crop).
 
 - **notify.ts** joins the cluster: provider peak-rate banners (verified GLM schedule, auth-based provider detection, atomic cross-instance claims, HID-idle suppression, OpenCode-attributed delivery) + opt-in permission auto-grant (default OFF).
 - **edit-candidates patch v2.1**: edit-tool errors now carry grouped candidate hints (L2, L4, L6 (100% after trim)), range summaries for swarms, degenerate-needle guards (no mass-replace hints for single letters), CRLF detection, indentation-mismatch labels. In-place upgrade path v1 to v2.1; 12-assertion harness.

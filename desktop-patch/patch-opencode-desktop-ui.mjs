@@ -756,6 +756,12 @@ function seedRegistry() {
         requireFile: plug("gate.ts"),
       },
       {
+        label: "Vision-guard: experimental redact (strip-crop)",
+        command: "sh \"" + path.join(here, "state-toggle") + "\" visionGuardRedact",
+        stateKey: "visionGuardRedact",
+        requireFile: plug("vision-guard.ts"),
+      },
+      {
         label: "Vision-guard: allow image reads (bypass)",
         command: "sh \"" + path.join(here, "state-toggle") + "\" visionGuardBypass",
         stateKey: "visionGuardBypass",

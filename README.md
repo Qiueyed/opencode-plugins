@@ -60,6 +60,15 @@ Ollama or vision model dies unexpectedly.
 
 ## vision-guard
 
+**Experimental redact mode** (v2): instead of blocking, the judge can
+propose cropping away one sensitive EDGE strip (top/bottom/left/right, <=50%,
++5% safety margin) when the remaining image is still worth its tokens. If the
+judge calls the remainder low-utility, the image is skipped entirely. Implemented
+with python3+PIL (sips cannot express edge crops). Toggle: `Vision-guard:
+experimental redact` in the Plugins menu (`visionGuardRedact`) or env
+`OPENCODE_VISION_GUARD_MODE=redact`. Default remains block. Audit log lines
+read REDACT. 16-case hostile battery in tests.
+
 Every model read of an image file (`read` tool on image extensions) is
 routed through a local vision model via Ollama first. A `sensitive` verdict
 replaces the image with a notice file explaining the block, so the model can
