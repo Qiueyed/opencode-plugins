@@ -162,6 +162,12 @@ token lines, and can remind you about provider low-quality time windows.
 
 ## Related work
 
+- [Qiueyed/opencode-desktop-patch](https://github.com/Qiueyed/opencode-desktop-patch) -
+  idempotent UI patcher for the desktop app: model-picker sizing + row info
+  badges, colored session titles (renders the session-size tags in color),
+  and a registry-driven native Plugins menu
+
+
 - [opencode-vibeguard](https://github.com/inkdust2021/opencode-vibeguard) - text
   secret/PII redaction before LLM calls (complementary to vision-guard, which
   handles images)
