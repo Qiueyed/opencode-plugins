@@ -22,7 +22,15 @@ function decodeHelpersFromTemplate() {
 
 function extractHelpersFromChunk(file) {
   const code = fs.readFileSync(file, "utf8");
-  const start = code.indexOf("function editCandidateLines");
+  // v2 chunks carry a marker and start with editLineAt; v1 chunks start
+  // directly at editCandidateLines. Either way the span ends at the
+  // injection anchor that follows the helpers.
+  const startCandidates = ["/* ec-helpers-v2 */", "function editLineAt", "function editCandidateLines"];
+  let start = -1;
+  for (const c of startCandidates) {
+    start = code.indexOf(c);
+    if (start !== -1) break;
+  }
   const end = code.indexOf("function isDisproportionateMatch");
   if (start === -1 || end === -1) throw new Error("helpers not found in chunk");
   return code.slice(start, end);
@@ -84,8 +92,8 @@ const stockNotFound = "Could not find oldString in the file. It must match exact
   ].join("\n");
   const msg = editNotFoundReport(content, "  total += item.cost;"); // wrong property name
   assert.ok(msg.startsWith(stockNotFound), "stock prefix kept");
-  assert.ok(msg.includes("line 4"), "closest line 4 hinted: " + msg);
-  assert.ok(/similar/.test(msg), "similarity shown");
+  assert.ok(msg.includes("L4"), "closest line hinted compactly: " + msg);
+  assert.ok(/L4 \(\d+%: /.test(msg), "score shown: " + msg);
   console.log("4. not-found single-line hint: OK");
 }
 
@@ -98,7 +106,7 @@ const stockNotFound = "Could not find oldString in the file. It must match exact
   const oldString = "const a = 1;\nconst b = 2;\nconst c = 4;"; // last line wrong
   const msg = editNotFoundReport(content, oldString);
   assert.ok(msg.includes("Closest regions"), "regions hinted: " + msg);
-  assert.ok(/line 21/.test(msg), "window at line 21 found");
+  assert.ok(/L21 \(/.test(msg), "window at line 21 found: " + msg);
   console.log("5. not-found multi-line window hint: OK");
 }
 
@@ -121,10 +129,43 @@ const stockNotFound = "Could not find oldString in the file. It must match exact
   assert.ok(msg.includes("Closest lines"), "found closest");
   assert.ok(dt < 2000, "fast enough: " + dt + "ms");
   const t1 = Date.now();
-  editAmbiguityReport(content, "line number");
+  const msg2 = editAmbiguityReport(content, "line number");
   const dt2 = Date.now() - t1;
   assert.ok(dt2 < 2000, "ambiguity scan fast: " + dt2 + "ms");
+  assert.ok(/Found 2000\+ matches/.test(msg2) || /Found \d+ matches for oldString \(lines /.test(msg2), "range summary for large counts: " + msg2.slice(0, 120));
   console.log(`7. perf sanity: OK (not-found ${dt}ms, ambiguity ${dt2}ms)`);
+}
+
+// --- 8. equal-score grouping (v2) -------------------------------------------
+{
+  const content = [
+    "x",
+    "let total = items.sum();",
+    "y",
+    "  let total = items.sum(); ",
+    "z",
+    "\tlet total = items.sum();",
+    "w",
+    "let total = items.sum(x);",
+    "end",
+    "let t = items.sum();",
+  ].join("\n");
+  const msg = editNotFoundReport(content, "let total = items.sums();");
+  assert.ok(msg.includes("L2, L4, L6 (96%)"), "equal scores grouped: " + msg);
+  assert.ok(/L8 \(\d+%: /.test(msg), "single-member group keeps preview: " + msg);
+  assert.ok(msg.split("%").length - 1 <= 3, "no per-line percentage spam: " + msg);
+  console.log("8. equal-score grouping: OK");
+}
+
+// --- 9. many-candidates range summary (v2) ----------------------------------
+{
+  const lines = [];
+  for (let i = 1; i <= 30; i++) lines.push("foo();");
+  const msg = editAmbiguityReport(lines.join("\n"), "foo();");
+  assert.ok(msg.includes("Found 30 matches for oldString (lines 1-30)"), "range form: " + msg);
+  assert.ok(!msg.includes("Candidates:"), "no per-line listing at scale");
+  assert.ok(msg.includes("replaceAll"), "replaceAll hint kept");
+  console.log("9. many-candidates range summary: OK");
 }
 
 console.log("\nAll helper tests passed.");

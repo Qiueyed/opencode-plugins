@@ -116,6 +116,15 @@ function resign() {
 // behavior is wrapped so a bug degrades to the stock message, never a crash.
 // ---------------------------------------------------------------------------
 const HELPERS = `
+/* ec-helpers-v2 */
+function editLineAt(content, idx) {
+  let lineNo = 1;
+  for (let j = 0; j < idx && j < content.length; j++) {
+    if (content.charCodeAt(j) === 10) lineNo++;
+  }
+  return lineNo;
+}
+
 function editCandidateLines(content, idxs, label) {
   const lines = content.split("\\n");
   const out = [];
@@ -134,13 +143,58 @@ function editCandidateLines(content, idxs, label) {
   return out.join("\\n");
 }
 
+// Group scored candidates by identical score so equal ranks share one
+// percentage: "L2, L4, L6 (100%); L9 (85%: preview)". A 100% group is
+// identical after trimming, so it never needs per-line previews; a preview
+// is shown only for a single-member group below 100%.
+function editGrouped(scored) {
+  try {
+    const groups = [];
+    for (let k = 0; k < scored.length; k++) {
+      const g = groups[groups.length - 1];
+      if (g && g.items[0].s === scored[k].s) g.items.push(scored[k]);
+      else groups.push({ items: [scored[k]] });
+    }
+    const parts = [];
+    for (const g of groups) {
+      const s = g.items[0].s;
+      const pct = Math.round(s * 100) + "%";
+      const nums = g.items.map(function (x) { return "L" + x.i; }).join(", ");
+      if (s >= 0.999) {
+        parts.push(nums + " (" + pct + ")");
+        continue;
+      }
+      if (g.items.length === 1 && g.items[0].text) {
+        let t = g.items[0].text;
+        if (t.length > 60) t = t.slice(0, 57) + "...";
+        parts.push(nums + " (" + pct + ": " + t + ")");
+      } else {
+        parts.push(nums + " (" + pct + ")");
+      }
+    }
+    return parts.join("; ");
+  } catch (e) {
+    return "";
+  }
+}
+
 function editAmbiguityReport(content, oldString) {
   try {
     const idxs = [];
     let i = content.indexOf(oldString);
-    while (i !== -1 && idxs.length < 50) {
+    while (i !== -1 && idxs.length < 2000) {
       idxs.push(i);
       i = content.indexOf(oldString, i + 1);
+    }
+    const hitCap = idxs.length >= 2000;
+    // Too many to list: one compact count + line range instead.
+    if (idxs.length > 12) {
+      const n = idxs.length + (hitCap ? "+" : "");
+      const span = editLineAt(content, idxs[0]) + "-" + editLineAt(content, idxs[idxs.length - 1]);
+      return (
+        "Found " + n + " matches for oldString (lines " + span + "). " +
+        "Pass replaceAll: true to replace every occurrence, or add surrounding lines to target one."
+      );
     }
     if (idxs.length > 1) {
       return (
@@ -153,10 +207,17 @@ function editAmbiguityReport(content, oldString) {
     const re = new RegExp(esc, "g");
     const flex = [];
     let m = re.exec(content);
-    while (m !== null && flex.length < 50) {
+    while (m !== null && flex.length < 2000) {
       flex.push(m.index);
       re.lastIndex = m.index + m[0].length;
       m = re.exec(content);
+    }
+    if (flex.length > 12) {
+      const span = editLineAt(content, flex[0]) + "-" + editLineAt(content, flex[flex.length - 1]);
+      return (
+        "Found " + flex.length + " whitespace-variant matches for oldString (lines " + span + "). " +
+        "Copy the exact text (including its indentation) from one of them."
+      );
     }
     if (flex.length > 1) {
       return (
@@ -199,13 +260,8 @@ function editNotFoundReport(content, oldString) {
         if (s > 0.5) scored.push({ i: i + 1, s, text: lines[i].trim() });
       }
       scored.sort(function (a, b) { return b.s - a.s; });
-      const top = scored.slice(0, 3);
-      if (top.length) {
-        hint = "\\nClosest lines: " + top.map(function (x) {
-          let t = x.text; if (t.length > 60) t = t.slice(0, 57) + "...";
-          return "line " + x.i + " (" + Math.round(x.s * 100) + "% similar): " + t;
-        }).join("; ");
-      }
+      const top = scored.slice(0, 6);
+      if (top.length) hint = "\\nClosest lines: " + editGrouped(top);
     } else {
       const w = target.length;
       const t = target.join("\\n").trim().slice(0, 400);
@@ -218,12 +274,8 @@ function editNotFoundReport(content, oldString) {
         if (scored.length > 2000) { scored.sort(function (a, b) { return b.s - a.s; }); scored.length = 10; }
       }
       scored.sort(function (a, b) { return b.s - a.s; });
-      const top = scored.slice(0, 3);
-      if (top.length) {
-        hint = "\\nClosest regions: " + top.map(function (x) {
-          return "line " + x.i + " (" + Math.round(x.s * 100) + "% similar)";
-        }).join("; ");
-      }
+      const top = scored.slice(0, 6);
+      if (top.length) hint = "\\nClosest regions: " + editGrouped(top);
     }
   } catch (e) {}
   return (
@@ -249,7 +301,7 @@ function findTargetFile(workdir) {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) stack.push(full);
-        else if (entry.name.endsWith(".js") && fs.readFileSync(full, "utf8").includes(ANCHOR_MULTI)) {
+        else if (entry.name.endsWith(".js") && fs.readFileSync(full, "utf8").includes(INJECT_BEFORE)) {
           return full;
         }
       }
@@ -261,8 +313,22 @@ function findTargetFile(workdir) {
 function patchFile(file, workdir) {
   let code = fs.readFileSync(file, "utf8");
   if (code.includes("editAmbiguityReport")) {
-    console.log("already patched:", file);
-    return false;
+    if (code.includes("ec-helpers-v2")) {
+      console.log("already patched (v2):", file);
+      return false;
+    }
+    // v1 -> v2 upgrade: swap the injected helper span in place. The v1
+    // layout is deterministic (HELPERS injected right before the injection
+    // anchor), so the span from the first helper to the anchor is exact.
+    const start = code.indexOf("function editCandidateLines");
+    const end = code.indexOf("function isDisproportionateMatch");
+    if (start === -1 || end === -1 || end < start) {
+      throw new Error("v1 helper span not found for upgrade; refusing to patch blindly");
+    }
+    code = code.slice(0, start) + HELPERS + code.slice(end);
+    fs.writeFileSync(file, code);
+    console.log("upgraded edit helpers v1 -> v2 in:", path.relative(workdir, file));
+    return true;
   }
   for (const [name, anchor] of [["not-found", ANCHOR_NOT_FOUND], ["multi-match", ANCHOR_MULTI]]) {
     const count = code.split(anchor).length - 1;
