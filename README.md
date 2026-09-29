@@ -172,6 +172,8 @@ npm install, no build step, and no other file from this repo.
   `event` hooks plus `client.app.log`, `client.tui.showToast`,
   `client.session.list/update`. Toasts are caught and logged in headless
   runs, so nothing crashes without a UI.
+- **Known quirk**: opencode auto-loads from BOTH `~/.config/opencode/plugin/` and `plugins/` (non-recursive) - keep your plugins in one folder only, or you get duplicate loads.
+- **Optional typechecking**: runtime never needs npm packages; to typecheck a plugin locally run `npm i -D @opencode-ai/plugin @types/node typescript` once.
 - **Tested on OpenCode 1.16.x** (desktop + TUI). The API surface used is
   small and stable; if a future version changes hooks, a plugin failing
   to load is logged by OpenCode and the rest keep working - plugins fail
