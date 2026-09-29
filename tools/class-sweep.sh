@@ -66,4 +66,22 @@ else
   say "skip marker pairing (bundle or npx unavailable)"
 fi
 echo "---"
+# Upstream pass: generic language checks defer to the established tools when
+# installed (class-sweep only adds what no generic tool can know: project contracts)
+if command -v shellcheck >/dev/null 2>&1; then
+  SH_FILES=()
+  for f in "$D"/tools/*.sh "$D/tools/trim-keep" "$D/tools/state-toggle" "$D/tools/janitor.sh" "$R/janitor/janitor.sh" "$R/janitor/trim-keep" "$R/desktop-patch/oc-ui"; do
+    [ -f "$f" ] && SH_FILES+=("$f")
+  done
+  ERRS=$(shellcheck -S warning "${SH_FILES[@]}" 2>/dev/null | grep -c "SC[0-9]" || true)
+  STYLE=$(shellcheck -S style "${SH_FILES[@]}" 2>/dev/null | grep -c "SC[0-9]" || true)
+  if [ "${ERRS:-0}" -gt 0 ]; then
+    fails=$((fails+1)); say "FAIL shellcheck warnings+: $ERRS"
+  else
+    say "ok   shellcheck: 0 warnings+ (${STYLE:-0} style notes)"
+  fi
+else
+  say "skip shellcheck (not installed - brew install shellcheck)"
+fi
+say "upstream note: semgrep/eslint are the heavier upstream equivalents for TS rules (no-require-imports, no-empty); install if plugin logic grows."
 if [ "$fails" -eq 0 ]; then say "CLASS SWEEP: ALL CLEAN"; else say "CLASS SWEEP: $fails CLASS(ES) FAILED"; exit 1; fi
