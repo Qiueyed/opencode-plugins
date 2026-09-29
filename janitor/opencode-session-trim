@@ -1,0 +1,190 @@
+#!/usr/bin/env node
+// opencode-session-trim: HARD-DELETE old message blocks from a session.
+//
+// WHY: OpenCode has no API to delete individual messages; compaction
+// summarizes (lossy) and the transcript keeps rendering old blocks. This tool keeps the last N USER turns (with everything after
+// each kept message's cutoff) and deletes everything older - messages AND
+// their parts - directly in the db. Result: shorter transcript, smaller
+// model context, no summaries. DESTRUCTIVE BY DESIGN: the removed blocks are
+// gone (a rolling single db backup is taken first).
+//
+// Usage:
+//   opencode-session-trim --list                 show sessions + message counts
+//   opencode-session-trim <session-id> [keep]    trim that session (keep = last
+//                                                 N user turns, default 15)
+//   opencode-session-trim --latest [keep]        trim the most-recent session
+//
+// SAFETY: refuses while OpenCode runs; backs up the db to
+// opencode.db.trim-backup (rolling, overwritten per run); events are left
+// untouched (they are compact history rows - the janitor manages overall db
+// size; deleting them would need JSON parsing per event and buys little).
+
+import fs from "fs";
+import path from "path";
+import { execFileSync } from "child_process";
+
+const DB = process.env.TRIM_DB_TEST || path.join(process.env.XDG_DATA_HOME || path.join(process.env.HOME, ".local/share"), "opencode", "opencode.db");
+const BACKUP = DB + ".trim-backup";
+
+function sh(cmd, args, opts = {}) {
+  const { input, ...rest } = opts;
+  return execFileSync(cmd, args, { stdio: ["pipe", "pipe", "pipe"], ...(input !== undefined ? { input } : {}), ...rest })
+    .toString()
+    .trim();
+}
+
+function sql(...args) {
+  // plain read-write open (NO -readonly): these dbs carry WAL mode in the
+  // header, and a read-only connection fails with SQLITE_CANTOPEN(14) when it
+  // cannot create the -shm file - the janitor has always used plain opens for
+  // the same reason. Safe here: app-closed guard + db backup before writes.
+  return sh("sqlite3", [DB, ".timeout 5000", ...args]);
+}
+function sqlWrite(statement) {
+  return sh("sqlite3", [DB, ".timeout 10000", statement]);
+}
+
+function appRunning() {
+  const out = sh("ps", ["axo", "command="]);
+  return /OpenCode[.]app\/Contents\/MacOS\/OpenCode(\s|$)/m.test(out);
+}
+
+const [, , cmdArg, keepArg] = process.argv;
+const KEEP = Math.max(1, parseInt(keepArg || "15", 10) || 15);
+
+if (!process.env.TRIM_DB_TEST && appRunning()) {
+  console.error("OpenCode is RUNNING. Quit it (Cmd+Q) first, then re-run.");
+  process.exit(1);
+}
+if (!fs.existsSync(DB)) {
+  console.error("db not found:", DB);
+  process.exit(1);
+}
+
+if (cmdArg === "--list" || !cmdArg) {
+  const rows = sql(
+    "-separator", "|",
+    "SELECT s.id, (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id), REPLACE(REPLACE(substr(s.title,1,50),char(10),' '),char(13),' '), datetime(s.time_updated/1000,'unixepoch','localtime') FROM session s ORDER BY s.time_updated DESC LIMIT 15;",
+  );
+  console.log("sessions (id | messages | title | updated):\n" + (rows || "(none)"));
+  process.exit(0);
+}
+
+// --- --strip-images mode: delete image PARTS from a session (or all
+// sessions), keep every message and all text - once inspected, the pixels
+// have served their purpose. Usage: --strip-images <session-id|all|latest>
+if (cmdArg === "--strip-images") {
+  const scope = keepArg || ""; // reuse the 2nd positional arg as scope
+  const ids = scope === "all"
+    ? sql("-separator", "|", "SELECT id FROM session;").split("\n").filter(Boolean)
+    : [scope === "latest" ? sql("SELECT id FROM session ORDER BY time_updated DESC LIMIT 1;") : scope];
+  if (!ids[0]) {
+    console.error("usage: opencode-session-trim --strip-images <session-id|all|latest>");
+    process.exit(1);
+  }
+  fs.copyFileSync(DB, BACKUP);
+  console.log(`backup: ${path.basename(BACKUP)} (${Math.round(fs.statSync(BACKUP).size / 1048576)}MB)`);
+  let total = 0;
+  let bytes = 0;
+  for (const sid of ids) {
+    const q = String(sid).trim().replace(/'/g, "''");
+    if (!q) continue;
+    const before = sql("-json", `SELECT COALESCE(SUM(LENGTH(data)),0) AS b, COUNT(*) AS n FROM part WHERE session_id='${q}' AND (json_extract(data,'$.mime') LIKE 'image%' OR json_extract(data,'$.type')='image');`);
+    const row = JSON.parse(before)[0] || { b: 0, n: 0 };
+    if (!Number(row.n)) continue;
+    sqlWrite(`DELETE FROM part WHERE session_id='${q}' AND (json_extract(data,'$.mime') LIKE 'image%' OR json_extract(data,'$.type')='image');`);
+    // drop part events whose part no longer exists (message.part.updated carries $.part.id)
+    sqlWrite(`DELETE FROM event WHERE aggregate_id='${q}' AND type LIKE 'message.part.updated%' AND json_extract(data,'$.part.id') NOT IN (SELECT id FROM part WHERE session_id='${q}');`);
+    total += Number(row.n);
+    bytes += Number(row.b);
+    console.log(`${q}: removed ${row.n} image part(s), ${(Number(row.b) / 1048576).toFixed(1)}MB`);
+  }
+  const qc = sql("SELECT quick_check FROM pragma_quick_check;");
+  console.log(`total: ${total} image part(s), ${(bytes / 1048576).toFixed(1)}MB freed; integrity: ${qc}`);
+  process.exit(0);
+}
+
+// --- --strip-reads mode: delete read-tool PARTS, keep every message and
+// text (same rationale - the conclusion is out).
+if (cmdArg === "--strip-reads") {
+  const scope = keepArg || "";
+  const ids = scope === "all"
+    ? sql("-separator", "|", "SELECT id FROM session;").split("\n").filter(Boolean)
+    : [scope === "latest" ? sql("SELECT id FROM session ORDER BY time_updated DESC LIMIT 1;") : scope];
+  if (!ids[0]) {
+    console.error("usage: opencode-session-trim --strip-reads <session-id|all|latest>");
+    process.exit(1);
+  }
+  fs.copyFileSync(DB, BACKUP);
+  console.log(`backup: ${path.basename(BACKUP)} (${Math.round(fs.statSync(BACKUP).size / 1048576)}MB)`);
+  let total = 0;
+  let bytes = 0;
+  for (const sid of ids) {
+    const q = String(sid).trim().replace(/'/g, "''");
+    if (!q) continue;
+    const before = sql("-json", `SELECT COALESCE(SUM(LENGTH(data)),0) AS b, COUNT(*) AS n FROM part WHERE session_id='${q}' AND json_extract(data,'$.type')='tool' AND json_extract(data,'$.tool')='read';`);
+    const row = JSON.parse(before)[0] || { b: 0, n: 0 };
+    if (!Number(row.n)) continue;
+    sqlWrite(`DELETE FROM part WHERE session_id='${q}' AND json_extract(data,'$.type')='tool' AND json_extract(data,'$.tool')='read';`);
+    sqlWrite(`DELETE FROM event WHERE aggregate_id='${q}' AND type LIKE 'message.part.updated%' AND json_extract(data,'$.part.id') NOT IN (SELECT id FROM part WHERE session_id='${q}');`);
+    total += Number(row.n);
+    bytes += Number(row.b);
+    console.log(`${q}: removed ${row.n} read part(s), ${(Number(row.b) / 1048576).toFixed(1)}MB`);
+  }
+  const qc = sql("SELECT quick_check FROM pragma_quick_check;");
+  console.log(`total: ${total} read part(s), ${(bytes / 1048576).toFixed(1)}MB freed; integrity: ${qc}`);
+  process.exit(0);
+}
+
+const sessionID = cmdArg === "--latest"
+  ? sql("SELECT id FROM session ORDER BY time_updated DESC LIMIT 1;")
+  : cmdArg;
+
+const title = sql("SELECT substr(title,1,60) FROM session WHERE id = '" + sessionID.replace(/'/g, "''") + "';");
+if (!title) {
+  console.error("session not found:", sessionID);
+  process.exit(1);
+}
+
+// Cutoff: the KEEP-th-from-last USER message (by time, rowid tiebreak).
+const cutoff = sql(
+  "-separator", "|",
+  `SELECT time_created, rowid FROM message WHERE session_id = '${sessionID.replace(/'/g, "''")}' AND json_extract(data,'$.role')='user' ORDER BY time_created DESC, rowid DESC LIMIT 1 OFFSET ${KEEP - 1};`,
+);
+
+const countRow = JSON.parse(
+  sql("-json", `SELECT (SELECT COUNT(*) FROM message WHERE session_id='${sessionID.replace(/'/g, "''")}') AS m, (SELECT COUNT(*) FROM part WHERE session_id='${sessionID.replace(/'/g, "''")}') AS p;`),
+);
+const beforeMsgs = Number((Array.isArray(countRow) ? countRow[0] : countRow)?.m ?? 0);
+const beforeParts = Number((Array.isArray(countRow) ? countRow[0] : countRow)?.p ?? 0);
+
+if (!cutoff) {
+  console.log(`"${title}" has fewer than ${KEEP} user turns (${beforeMsgs} messages) - nothing to trim.`);
+  process.exit(0);
+}
+const [cutTime, cutRow] = cutoff.split("|");
+const q = sessionID.replace(/'/g, "''");
+const older = sql(
+  "SELECT COUNT(*) FROM message WHERE session_id='" + q + "' AND (time_created < " + cutTime + " OR (time_created = " + cutTime + " AND rowid < " + cutRow + "));",
+);
+if (Number(older) === 0) {
+  console.log(`"${title}": nothing older than the last ${KEEP} user turns - nothing to trim.`);
+  process.exit(0);
+}
+
+fs.copyFileSync(DB, BACKUP);
+console.log(`backup: ${path.basename(BACKUP)} (${Math.round(fs.statSync(BACKUP).size / 1048576)}MB)`);
+
+const delParts = sqlWrite(
+  `DELETE FROM part WHERE session_id='${q}' AND message_id IN (SELECT id FROM message WHERE session_id='${q}' AND (time_created < ${cutTime} OR (time_created = ${cutTime} AND rowid < ${cutRow})));`,
+);
+const delMsgs = sqlWrite(
+  `DELETE FROM message WHERE session_id='${q}' AND (time_created < ${cutTime} OR (time_created = ${cutTime} AND rowid < ${cutRow}));`,
+);
+
+const after = sql("-separator", "|", `SELECT (SELECT COUNT(*) FROM message WHERE session_id='${q}'), (SELECT COUNT(*) FROM part WHERE session_id='${q}'), (SELECT quick_check FROM pragma_quick_check);`);
+const [aMsgs, aParts, qc] = after.split("|");
+console.log(
+  `trimmed "${title}" to the last ${KEEP} user turns: messages ${beforeMsgs} -> ${aMsgs}, parts ${beforeParts} -> ${aParts}, integrity: ${qc}`,
+);
+console.log("reopen OpenCode - the session shows only the kept turns.");

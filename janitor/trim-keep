@@ -1,0 +1,18 @@
+#!/bin/bash
+# trim-keep <nn> - set the keep count used by the session menu's
+# "Trim old messages" item (janitor resolves bare ⏳TRIM markers to this
+# number at close). Written for the Plugins-menu radio group; harmless to
+# run from a shell. Bounds: 1..500.
+N="$1"
+case "$N" in ''|*[!0-9]*) echo "usage: trim-keep <nn>"; exit 1 ;; esac
+[ "$N" -lt 1 ] && N=1
+[ "$N" -gt 500 ] && N=500
+D="$HOME/.config/opencode"
+printf '%s\n' "$N" > "$D/trim-keep.txt"
+for m in "$D"/.trim-keep-*; do
+  [ -e "$m" ] || continue
+  [ "$m" = "$D/.trim-keep-$N" ] && continue
+  rm -f "$m"
+done
+touch "$D/.trim-keep-$N"
+echo "session trim keep = $N (applies at the next quit on marked sessions)"

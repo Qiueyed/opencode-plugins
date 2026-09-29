@@ -13,6 +13,7 @@ variables, everything disable-able.
 | [error-root-cause](#error-root-cause) | Real root cause of provider errors as a toast + local JSONL archive | Any | - |
 | [session-guard](#session-guard) | Context-budget warnings + optional low-quality-window reminders | Any | - |
 | [godot-gate-guard](#godot-gate-guard) | Mechanically blocks AI agents from launching hanging headless Godot runs | Any (Godot projects) | your gate wrapper |
+| [janitor](#janitor) | Post-quit database maintenance: orphan sweep, compaction trim, stale payload strip, vacuum when due | macOS | sqlite3 |
 
 ## Install
 
@@ -185,6 +186,16 @@ npm install, no build step, and no other file from this repo.
   breaking your session; every one has an env kill-switch.
 - All of them were extracted from daily personal use; they are plain-reading
   single files on purpose - read before you install.
+
+## janitor
+
+Post-quit database maintenance in [janitor/](janitor/): a plugin arms a
+watcher at startup; once every OpenCode process is gone it sweeps orphans,
+trims dead pre-compaction rows, strips stale image/read payloads, caps
+title-churn events, and vacuums only when 10%+ of pages are free. Policy:
+**vacuum only** - it never deletes a session, and every destructive step
+takes a rolling backup first. Manual trim/strip CLI included. See
+[janitor/README.md](janitor/README.md).
 
 ## desktop-patch: control the desktop app itself
 
