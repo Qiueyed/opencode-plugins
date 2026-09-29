@@ -17,9 +17,9 @@
  *   call the desktop's own auto-accept uses. DANGEROUS BY DESIGN: it
  *   approves every ask that reaches it. Enable ONLY by creating
  *   state/state.json key notifyAutogrant. Config-level denies
- *   (sudo, rm -rf /*) short-circuit in the core permission service
- *   BEFORE any ask is published, so guardrails and per-agent denies
- *   still win over this.
+ *   (sudo) short-circuit in the core permission service; rm -rf asks DO
+ *   reach this hook (only sudo is config-denied), so guardrails and
+ *   per-agent denies still win over this.
  *   note: notifier >= 0.3.0 waits 300ms after permission.asked and only
  *   alerts if the ask is still pending, so auto-approved asks stay
  *   silent; sounds.permission fires only if an ask gets stuck.
