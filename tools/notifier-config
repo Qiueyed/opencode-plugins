@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""Atomic editor for opencode-notifier.json (Plugins > Notifier menu backend).
+
+Usage:
+  notifier-config volume <full|normal|quiet|0.0-1.0>
+  notifier-config tone <question|error|complete|permission> <default|alt>
+  notifier-config test
+
+All writes go through tmp + os.replace, so a crash mid-write can never
+truncate the live config; the notifier plugin hot-reloads it per event.
+"""
+import json
+import os
+import subprocess
+import sys
+
+# Default = the npm notifier's own default path. To keep the config in
+# ~/.config/opencode/state/ instead (cleaner root), either set
+# OPENCODE_NOTIFIER_CONFIG_PATH for the notifier and pass --cfg here, or
+# symlink root -> state and let the default stand.
+CFG = os.path.expanduser("~/.config/opencode/opencode-notifier.json")
+DEFAULTS = {
+    "question": "/System/Library/Sounds/Tink.aiff",
+    "error": "/System/Library/Sounds/Tink.aiff",
+    "complete": "/System/Library/Sounds/Glass.aiff",
+    "permission": "/System/Library/Sounds/Tink.aiff",
+}
+ALTS = {
+    "question": "/System/Library/Sounds/Ping.aiff",
+    "error": "/System/Library/Sounds/Funk.aiff",
+    "complete": "/System/Library/Sounds/Hero.aiff",
+    "permission": "/System/Library/Sounds/Sosumi.aiff",
+}
+VOLUMES = {"full": 1.0, "normal": 0.7, "quiet": 0.5}
+
+
+def save(cfg):
+    tmp = f"{CFG}.tmp.{os.getpid()}"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, indent=2)
+    os.replace(tmp, CFG)
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(__doc__)
+    cmd = sys.argv[1]
+    with open(CFG) as f:
+        cfg = json.load(f)
+    if cmd == "volume":
+        arg = sys.argv[2]
+        val = VOLUMES.get(arg)
+        if val is None:
+            try:
+                val = float(arg)
+            except ValueError:
+                sys.exit(f"bad volume: {arg}")
+        if not 0 <= val <= 1:
+            sys.exit(f"bad volume: {arg}")
+        v = cfg.setdefault("volumes", {})
+        for event in DEFAULTS:
+            v[event] = val
+    elif cmd == "tone":
+        event, which = sys.argv[2], sys.argv[3]
+        if event not in DEFAULTS or which not in ("default", "alt"):
+            sys.exit(f"bad tone: {event} {which}")
+        cfg.setdefault("sounds", {})[event] = ALTS[event] if which == "alt" else DEFAULTS[event]
+    elif cmd == "test":
+        s = cfg.get("sounds", {}).get("question", DEFAULTS["question"])
+        v = str(cfg.get("volumes", {}).get("question", 1))
+        sys.exit(subprocess.run(["afplay", "-v", v, s]).returncode)
+    else:
+        sys.exit(__doc__)
+    save(cfg)
+
+
+if __name__ == "__main__":
+    main()

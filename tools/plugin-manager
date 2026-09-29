@@ -1,0 +1,372 @@
+#!/usr/bin/env python3
+"""
+opencode-plugins - plugin manager for OpenCode
+
+Native opencode has NO plugin manager: it auto-loads every *.ts/*.js in
+~/.config/opencode/{plugin,plugins}/ (non-recursive, verified in app.asar:
+Glob.scan("{plugin,plugins}/*.{ts,js}")) plus the npm packages listed in the
+"plugin" array of opencode.jsonc. This script adds the missing enable/disable
+control on top:
+
+  local plugins  enabled   = file in ~/.config/opencode/plugins/
+                 disabled  = file moved to ~/.config/opencode/plugins-disabled/
+                             (a subdir of plugins/ would also work - the scan
+                             is not recursive - but a sibling dir is clearer)
+  npm plugins    enabled   = entry in opencode.jsonc "plugin": [ ... ]
+                 disabled  = entry removed from the array and remembered in
+                             ~/.config/opencode/state/plugin-manager.json
+  archived       files in ~/.config/opencode/archive/plugins/ (show + restore)
+  project-level  *.ts/*.js in <project>/.opencode/{plugin,plugins}/ - listed
+                 for information only (they load only inside that project)
+
+Usage:
+  opencode-plugins                interactive menu (type a number to toggle)
+  opencode-plugins list           same table, no prompt
+  opencode-plugins enable NAME... disable NAME... toggle NAME...
+  opencode-plugins --config PATH  use a different opencode.jsonc (for tests)
+
+Names match the file name, its stem, or a unique case-insensitive substring
+("caffeinate" -> caffeinate.ts, "notifier" -> @mohak34/opencode-notifier).
+
+Changes take effect the next time OpenCode starts (plugins load at startup).
+opencode.jsonc is backed up to .bak before every edit and auto-restored if
+the edit fails validation.
+"""
+import json
+import os
+import re
+import shutil
+import sys
+from glob import glob
+from pathlib import Path
+
+HOME = Path.home()
+CONFIG_DIR = HOME / ".config" / "opencode"
+PLUGINS_DIR = CONFIG_DIR / "plugins"
+DISABLED_DIR = CONFIG_DIR / "plugins-disabled"
+ARCHIVE_DIR = CONFIG_DIR / "archive" / "plugins"
+STATE_PATH = CONFIG_DIR / "state" / "plugin-manager.json"
+(CONFIG_DIR / "state").mkdir(exist_ok=True)
+CONFIG_PATH = CONFIG_DIR / "opencode.jsonc"
+
+KIND_ORDER = {"local": 0, "npm": 1, "archived": 2, "project": 3}
+
+
+def state() -> dict:
+    try:
+        return json.loads(STATE_PATH.read_text())
+    except Exception:
+        return {}
+
+
+def save_state(st: dict) -> None:
+    STATE_PATH.write_text(json.dumps(st, indent=2) + "\n")
+
+
+def config_path() -> Path:
+    for i, a in enumerate(sys.argv):
+        if a == "--config" and i + 1 < len(sys.argv):
+            return Path(sys.argv[i + 1])
+    return CONFIG_PATH
+
+
+def entries_in(d: Path) -> list[Path]:
+    if not d.is_dir():
+        return []
+    out = []
+    for p in sorted(d.iterdir()):
+        if p.is_file() and p.suffix in (".ts", ".js") and not p.name.endswith(".bak"):
+            out.append(p)
+    return out
+
+
+def npm_entries(cfg: Path) -> list[str]:
+    """Parse the "plugin": [...] array from opencode.jsonc (string-aware).
+    Plain string entries only; tuples [name, options] are reported as-is."""
+    text = cfg.read_text()
+    m = re.search(r'"plugin"\s*:\s*\[', text)
+    if not m:
+        return []
+    i = m.end() - 1  # at '['
+    depth, instr, esc = 0, False, False
+    for j in range(i, len(text)):
+        ch = text[j]
+        if instr:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                instr = False
+        elif ch == '"':
+            instr = True
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                inner = text[i + 1 : j]
+                # split top-level commas outside strings
+                parts, buf, instr, esc = [], "", False, False
+                for ch2 in inner:
+                    if instr:
+                        buf += ch2
+                        if esc:
+                            esc = False
+                        elif ch2 == "\\":
+                            esc = True
+                        elif ch2 == '"':
+                            instr = False
+                    elif ch2 == '"':
+                        instr = True
+                        buf += ch2
+                    elif ch2 == ",":
+                        parts.append(buf)
+                        buf = ""
+                    else:
+                        buf += ch2
+                if buf.strip():
+                    parts.append(buf)
+                out = []
+                for p in parts:
+                    p = p.strip()
+                    if p.startswith("["):  # [name, options] tuple form: keep raw
+                        out.append(p)
+                    elif len(p) >= 2 and p[0] == '"' and p[-1] == '"':
+                        out.append(p[1:-1])
+                    else:
+                        out.append(p)
+                return out
+    return []
+
+
+def strip_jsonc(text: str) -> str:
+    """State-machine comment stripper (safe for 'https://' inside strings)."""
+    out, instr, esc = [], False, False
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if instr:
+            out.append(ch)
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                instr = False
+            i += 1
+        elif ch == '"':
+            instr = True
+            out.append(ch)
+            i += 1
+        elif ch == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != "\n":
+                i += 1
+        elif ch == "/" and i + 1 < n and text[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def set_npm_entry(cfg: Path, name: str, add: bool) -> None:
+    """Add or remove one entry in the "plugin" array, preserving the rest of
+    the file byte-for-byte. Raises on structural surprises (comments inside
+    the array, missing key, duplicate)."""
+    text = cfg.read_text()
+    m = re.search(r'^(\s*)"plugin"\s*:\s*\[', text, re.M)
+    if not m:
+        raise SystemExit(f'no "plugin" array found in {cfg}; add one manually first')
+    indent = m.group(1)
+    start = m.end() - 1
+    depth, instr, esc = 0, False, False
+    end = -1
+    for j in range(start, len(text)):
+        ch = text[j]
+        if instr:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                instr = False
+        elif ch == '"':
+            instr = True
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                end = j
+                break
+    if end < 0:
+        raise SystemExit('malformed "plugin" array')
+    block = text[start : end + 1]
+    if "//" in block or "/*" in block:
+        raise SystemExit('"plugin" array contains comments; edit it manually instead')
+
+    current = [p.strip() for p in block[1:-1].split(",") if p.strip()]
+    current = [c[1:-1] if len(c) >= 2 and c[0] == '"' and c[-1] == '"' else c for c in current]
+    if add:
+        if name in current:
+            return  # already enabled
+        current.append(name)
+    else:
+        if name not in current:
+            return  # already disabled
+        current = [c for c in current if c != name]
+
+    if current:
+        inner = "".join(f'\n{indent}  "{c}",' for c in current)
+        inner = inner.rstrip(",") + "\n" + indent
+        new_block = "[" + inner + "]"
+    else:
+        new_block = "[]"
+    new_text = text[:start] + new_block + text[end + 1 :]
+
+    backup = cfg.with_suffix(cfg.suffix + ".bak")
+    backup.write_text(text)
+    cfg.write_text(new_text)
+    try:
+        json.loads(strip_jsonc(cfg.read_text()))  # must still parse
+    except Exception as e:
+        shutil.copyfile(backup, cfg)
+        raise SystemExit(f"edit failed validation, restored backup: {e}")
+
+
+def project_plugins() -> list[tuple[str, Path]]:
+    roots = [HOME / "Documents", HOME / "Projects"]
+    found: list[tuple[str, Path]] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for pat in ("*/*/.opencode/plug*/*", "*/*/*/.opencode/plug*/*", "*/*/*/*/.opencode/plug*/*"):
+            for p in glob(str(root / pat)):
+                pp = Path(p)
+                if pp.is_file() and pp.suffix in (".ts", ".js"):
+                    proj = pp.parts[pp.parts.index(".opencode") - 1]
+                    found.append((proj, pp))
+    return sorted(set(found))
+
+
+def collect() -> list[dict]:
+    rows = []
+    st = state()
+    for p in entries_in(PLUGINS_DIR):
+        rows.append({"name": p.name, "kind": "local", "on": True, "path": str(p)})
+    for p in entries_in(DISABLED_DIR):
+        rows.append({"name": p.name, "kind": "local", "on": False, "path": str(p)})
+    for name in npm_entries(config_path()):
+        rows.append({"name": name, "kind": "npm", "on": True, "path": "opencode.jsonc"})
+    for name in st.get("npm_disabled", []):
+        if name not in [r["name"] for r in rows if r["kind"] == "npm"]:
+            rows.append({"name": name, "kind": "npm", "on": False, "path": "state file"})
+    for p in entries_in(ARCHIVE_DIR):
+        rows.append({"name": p.name, "kind": "archived", "on": False, "path": str(p)})
+    for proj, p in project_plugins():
+        rows.append({"name": p.name, "kind": "project", "on": True, "path": f"{proj}: {p}"})
+    return rows
+
+
+def show(rows: list[dict]) -> None:
+    print(f'{"#":>2}  {"NAME":44} {"KIND":9} STATE     WHERE')
+    for i, r in enumerate(rows, 1):
+        state_s = "enabled " if r["on"] else "disabled"
+        print(f'{i:>2}  {r["name"]:44.44} {r["kind"]:9} {state_s}  {r["path"]}')
+
+
+def resolve(rows: list[dict], name: str) -> dict:
+    name_l = name.lower()
+    cands = [r for r in rows if r["name"].lower() == name_l]
+    if not cands:
+        cands = [r for r in rows if Path(r["name"]).stem.lower() == name_l]
+    if not cands:
+        cands = [r for r in rows if name_l in r["name"].lower()]
+    if len(cands) != 1:
+        if cands:
+            raise SystemExit(f'ambiguous "{name}": ' + ", ".join(r["name"] for r in cands))
+        raise SystemExit(f'no plugin matches "{name}"')
+    return cands[0]
+
+
+def do_toggle(r: dict) -> None:
+    kind, on = r["kind"], r["on"]
+    if kind == "local":
+        src = Path(r["path"])
+        dst_dir = DISABLED_DIR if on else PLUGINS_DIR
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dst_dir / src.name))
+    elif kind == "npm":
+        name = r["name"]
+        set_npm_entry(config_path(), name, add=not on)
+        st = state()
+        dis = st.setdefault("npm_disabled", [])
+        if on:
+            if name not in dis:
+                dis.append(name)
+        else:
+            if name in dis:
+                dis.remove(name)
+        save_state(st)
+    elif kind == "archived":
+        src = Path(r["path"])
+        PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(PLUGINS_DIR / src.name))
+    elif kind == "project":
+        raise SystemExit("project plugins load per-project; delete the file in that project to disable it")
+
+
+def main() -> None:
+    args = [a for a in sys.argv[1:] if a != "--config"]
+    if "--config" in sys.argv:
+        args = [a for a in args if a not in (sys.argv[sys.argv.index("--config") + 1],)]
+    cmd = args[0] if args else "menu"
+
+    rows = collect()
+    if cmd in ("list", "menu", "status"):
+        show(rows)
+        if cmd != "menu":
+            print("\nchanges take effect after restarting OpenCode")
+            return
+        print("\nnumber = toggle, q = quit, r = refresh")
+        while True:
+            try:
+                pick = input("> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return
+            if pick in ("q", "quit", ""):
+                return
+            if pick == "r":
+                rows = collect()
+                show(rows)
+                continue
+            if pick.isdigit() and 1 <= int(pick) <= len(rows):
+                r = rows[int(pick) - 1]
+                try:
+                    do_toggle(r)
+                except SystemExit as e:
+                    print(f"!! {e}")
+                    continue
+                rows = collect()
+                show(rows)
+            else:
+                print("enter a row number, r, or q")
+    elif cmd in ("enable", "disable", "toggle"):
+        for name in args[1:]:
+            r = resolve(collect(), name)
+            want_on = cmd == "enable" or (cmd == "toggle" and not r["on"])
+            if r["on"] != want_on:
+                do_toggle(r)
+            print(f'{r["name"]}: {"enabled" if want_on else "disabled"}')
+        print("changes take effect after restarting OpenCode")
+    else:
+        raise SystemExit(__name__ + ": unknown command " + cmd)
+
+
+if __name__ == "__main__":
+    main()

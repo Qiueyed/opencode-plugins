@@ -14,6 +14,7 @@ variables, everything disable-able.
 | [session-guard](#session-guard) | Context-budget warnings + optional low-quality-window reminders | Any | - |
 | [godot-gate-guard](#godot-gate-guard) | Mechanically blocks AI agents from launching hanging headless Godot runs | Any (Godot projects) | your gate wrapper |
 | [notify](#notify) | Provider peak-rate banners + opt-in permission auto-grant, OpenCode-attributed, never wakes you | macOS | - |
+| [Tools](#tools) | state-toggle, plugin-manager, notifier-config - small utilities behind the menu | - | - |
 | [janitor](#janitor) | Post-quit database maintenance: orphan sweep, compaction trim, stale payload strip, vacuum when due | macOS | sqlite3 |
 
 ## Install
@@ -190,6 +191,13 @@ npm install, no build step, and no other file from this repo.
 - All of them were extracted from daily personal use; they are plain-reading
   single files on purpose - read before you install.
 
+## Tools
+
+Small Python utilities that pair with the plugins (no runtime dependency - the plugins run without them):
+
+- **[tools/state-toggle](tools/state-toggle)** - atomic boolean toggle in `state/state.json`; the backend behind the vision-guard / peak-banner / auto-grant menu checkboxes.
+- **[tools/plugin-manager](tools/plugin-manager)** - enable/disable plugins without hand-moving files. OpenCode auto-loads everything in `plugins/` and has no native manager; this one moves local plugins to `plugins-disabled/` and comments npm entries out of `opencode.jsonc`. `plugin-manager list` to inspect.
+- **[tools/notifier-config](tools/notifier-config)** - atomic editor for the [@mohak34/opencode-notifier](https://www.npmjs.com/package/@mohak34/opencode-notifier) config (`notifier-config volume quiet`, `notifier-config tone question alt`) - the backend for a Notifier menu. Its crash-safe `tmp + os.replace` write means a mid-write kill can never corrupt the notifier\x27s config.
 ## notify
 
 [notify.ts](notify.ts) complements the community
