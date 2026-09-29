@@ -8,7 +8,7 @@
  * How: classifies the raw provider error (nested JSON bodies, status codes,
  * known signatures: quota, auth, 429, context overflow, 5xx outage, TLS,
  * network...) into {status, code, root, hint} and toasts the result. The
- * archive lives at ~/.config/opencode/error-diagnosis.jsonl by default
+ * archive lives at ~/.config/opencode/state/error-diagnosis.jsonl by default
  * (env: OPENCODE_ERROR_LOG) and stays on your machine.
  *
  * NOTE for contributors: export ONLY the plugin factory from this file.
@@ -25,7 +25,7 @@
  *   OPENCODE_ERROR_LOG                     archive path (default shown above)
  */
 import type { Plugin } from "@opencode-ai/plugin"
-import { appendFileSync, readFileSync } from "node:fs"
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
 
@@ -45,7 +45,7 @@ function setting(key: string, fallback: string): string {
   return fallback
 }
 
-const OUT_LOG = setting("OPENCODE_ERROR_LOG", homedir() + "/.config/opencode/error-diagnosis.jsonl")
+const OUT_LOG = setting("OPENCODE_ERROR_LOG", homedir() + "/.config/opencode/state/error-diagnosis.jsonl")
 const DEDUPE_MS = 10_000
 const TOAST_MAX = 300
 
@@ -257,7 +257,8 @@ export const ErrorRootCause: Plugin = async ({ client }) => {
           raw: raw.slice(0, 4000),
         })
         try {
-          appendFileSync(OUT_LOG, line + "\n")
+                    mkdirSync(path.dirname(OUT_LOG), { recursive: true })
+appendFileSync(OUT_LOG, line + "\n")
         } catch {}
         try {
           await client.app.log({

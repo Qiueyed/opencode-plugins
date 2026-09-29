@@ -15,7 +15,7 @@ destructive.
 |---|---|---|
 | Orphan sweep | `event_sequence` / `message` / `part` rows whose session is gone (the UI delete path leaves orphans) | never touches live-session rows |
 | Compaction trim | messages + parts + events BEFORE a session's last compaction summary (their content lives inside the summary) | only sessions that actually contain a summary; summary and everything after kept |
-| Trim markers | session titles ending ` ⏳TRIM15` are trimmed to the last 15 user turns, marker stripped | marker stripped even when nothing to trim; bare ` ⏳TRIM` resolves from `trim-keep.txt` (default 15) |
+| Trim markers | session titles ending ` ⏳TRIM15` are trimmed to the last 15 user turns, marker stripped | marker stripped even when nothing to trim; bare ` ⏳TRIM` resolves from `state/trim-keep.txt` (default 15) |
 | Payload strip | image parts + read-tool parts from sessions untouched for 48h+, plus sessions marked ` ⏳IMGS` | active sessions always protected; messages and text kept |
 | `session.updated` cap | keeps newest 5 per session (title-rewrite churn events) | newest kept |
 | VACUUM | only when >= 10% of db pages are free | otherwise logs "not due" |

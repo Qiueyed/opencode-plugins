@@ -23,7 +23,7 @@
 //   OPENCODE_VISION_GUARD_MODEL            vision model tag (default qwen3-vl:8b)
 //   OPENCODE_VISION_GUARD_POLICY           fail-closed (default) | fail-open
 //   OPENCODE_VISION_GUARD_TIMEOUT_MS       inspection timeout (default 90000)
-//   Bypass without env: marker file ~/.config/opencode/vision-guard.off
+//   Bypass without env: marker file ~/.config/opencode/state/vision-guard.off
 //   (touch to arm, rm to re-enable). Every bypass is written to the audit log.
 //
 // Scope: the "read" tool on image extensions. Audit trail:
@@ -44,7 +44,7 @@ import path from "node:path"
 
 const CACHE_TTL_MS = 10 * 60_000
 const AUDIT_LOG = path.join(process.env.XDG_DATA_HOME || path.join(process.env.HOME || ".", ".local", "share"), "opencode", "vision-guard.log")
-const BYPASS_MARKER = path.join(process.env.HOME || ".", ".config", "opencode", "vision-guard.off")
+const BYPASS_MARKER = path.join(process.env.HOME || ".", ".config", "opencode", "state", "vision-guard.off")
 const NOTICE_FILE = path.join(tmpdir(), `vision-guard-blocked-${process.pid}.txt`)
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|bmp|tiff?|heic|heif|avif)$/i
 const INSPECT_MAXDIM = 1600
@@ -210,7 +210,7 @@ function writeNotice(originalPath: string, v: Verdict) {
     `If the inspector is not set up yet, install Ollama + a vision model, or set`,
     `  OPENCODE_VISION_GUARD_POLICY=fail-open   (allow reads when the inspector is down)`,
     `  OPENCODE_VISION_GUARD=allow              (disable the guard)`,
-    `Temporary bypass marker: touch ~/.config/opencode/vision-guard.off`,
+    `Temporary bypass marker: touch ~/.config/opencode/state/vision-guard.off`,
     `Audit log: ${AUDIT_LOG}`,
   ].join("\n")
   try {

@@ -185,7 +185,7 @@ if [ -n "$UI_MARKED" ]; then
     case "$KEEP" in
       ''|*[!0-9]*)
         # bare ⏳TRIM marker: resolve from the Plugins-menu setting
-        KEEP=$(cat "$HOME/.config/opencode/trim-keep.txt" 2>/dev/null | tr -d '[:space:]')
+        KEEP=$(cat "$HOME/.config/opencode/state/trim-keep.txt" 2>/dev/null | tr -d '[:space:]')
         case "$KEEP" in ''|*[!0-9]*) KEEP=15 ;; esac
         ;;
     esac

@@ -743,8 +743,8 @@ function seedRegistry() {
       {
         label: "Vision-guard: allow image reads (bypass)",
         command:
-          "if test -e \"$HOME/.config/opencode/vision-guard.off\"; then rm \"$HOME/.config/opencode/vision-guard.off\"; else touch \"$HOME/.config/opencode/vision-guard.off\"; fi",
-        stateFile: home + "/.config/opencode/vision-guard.off",
+          "if test -e \"$HOME/.config/opencode/state/vision-guard.off\"; then rm \"$HOME/.config/opencode/state/vision-guard.off\"; else touch \"$HOME/.config/opencode/state/vision-guard.off\"; fi",
+        stateFile: home + "/.config/opencode/state/vision-guard.off",
         requireFile: plug("vision-guard.ts"),
       },
       {

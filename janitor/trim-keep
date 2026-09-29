@@ -8,11 +8,11 @@ case "$N" in ''|*[!0-9]*) echo "usage: trim-keep <nn>"; exit 1 ;; esac
 [ "$N" -lt 1 ] && N=1
 [ "$N" -gt 500 ] && N=500
 D="$HOME/.config/opencode"
-printf '%s\n' "$N" > "$D/trim-keep.txt"
-for m in "$D"/.trim-keep-*; do
+printf '%s\n' "$N" > "$D/state/trim-keep.txt"
+for m in "$D"/state/.trim-keep-*; do
   [ -e "$m" ] || continue
   [ "$m" = "$D/.trim-keep-$N" ] && continue
   rm -f "$m"
 done
-touch "$D/.trim-keep-$N"
+touch "$D/state/.trim-keep-$N"
 echo "session trim keep = $N (applies at the next quit on marked sessions)"

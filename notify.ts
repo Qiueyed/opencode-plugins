@@ -16,7 +16,7 @@
  *   auto-replies "once" via the session permissions API - the same
  *   call the desktop's own auto-accept uses. DANGEROUS BY DESIGN: it
  *   approves every ask that reaches it. Enable ONLY by creating
- *   ~/.config/opencode/notify-autogrant.on. Config-level denies
+ *   ~/.config/opencode/state/notify-autogrant.on. Config-level denies
  *   (sudo, rm -rf /*) short-circuit in the core permission service
  *   BEFORE any ask is published, so guardrails and per-agent denies
  *   still win over this.
@@ -92,18 +92,18 @@ const PEAK_PROVIDERS: PeakProvider[] = [
 const AUTH_JSON = homedir() + "/.local/share/opencode/auth.json"
 // Kill switch: file present = peak banners disabled. Checked per poll, so
 // the toggle is live without a restart (wire it to a menu checkbox).
-const PEAK_OFF_MARKER = homedir() + "/.config/opencode/peak-banner.off"
+const PEAK_OFF_MARKER = homedir() + "/.config/opencode/state/peak-banner.off"
 // Cross-instance claim files: the desktop app instantiates the plugin once
 // per project/window (several instances observed), each firing its own
 // peak banner at window open. Per provider: the first instance to atomically
 // create `<PEAK_KEY_FILE>-<id>` with today's UTC key wins; every other
 // instance (including ones spawned later in the day) sees the file and stays
 // quiet.
-const PEAK_KEY_FILE = homedir() + "/.config/opencode/.peak-banner-day"
+const PEAK_KEY_FILE = homedir() + "/.config/opencode/state/.peak-banner-day"
 // Opt-in marker for the permission auto-grant: file present = ON. Default is
 // OFF because this approves every ask. Local installs that want it create the
 // marker; the desktop toggle contract is a menu checkbox writing this file.
-const AUTOGRANT_ON = homedir() + "/.config/opencode/notify-autogrant.on"
+const AUTOGRANT_ON = homedir() + "/.config/opencode/state/notify-autogrant.on"
 
 // Resting-user gate: if there has been no keyboard/mouse input for this
 // long, the user is away or asleep -> suppress the peak banner (and its
@@ -272,7 +272,7 @@ export const Notify: Plugin = async ({ client, project, directory }) => {
   setInterval(peakLoop, PEAK_CHECK_MS).unref()
 
   // Opt-in auto-grant: approve every permission ask so agent runs never
-  // block. DEFAULT OFF - create ~/.config/opencode/notify-autogrant.on to
+  // block. DEFAULT OFF - create ~/.config/opencode/state/notify-autogrant.on to
   // enable (restart to apply). Denies from config/agent rules never reach
   // this point, so they are unaffected.
   // The notifier plugin (>=0.3.0) only alerts on asks still pending
