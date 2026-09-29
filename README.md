@@ -202,8 +202,9 @@ takes a rolling backup first. Manual trim/strip CLI included. See
 [desktop-patch/](desktop-patch/) holds an idempotent patcher for the
 OpenCode **desktop app** (macOS): model-picker sizing + row info badges,
 colored session titles (renders this repo's session-size tags in color),
-and a native **Plugins** menu built from a JSON registry - the control
-surface for this whole plugin set. See
+a native **Plugins** menu built from a JSON registry - the control
+surface for this whole plugin set - and a session-menu **Trim & clean**
+submenu that writes the janitor's trim markers from the UI. See
 [desktop-patch/README.md](desktop-patch/README.md).
 
 ## Related work
