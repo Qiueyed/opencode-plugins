@@ -80,6 +80,12 @@ app after editing). Entry shapes:
     { "label": "Do a thing", "command": "your-command --here" },
     // checkbox: checked iff the file exists; click runs the command
     { "label": "Some bypass", "command": "touch-or-rm marker", "stateFile": "/path/to/marker" },
+    // info dialog after the command (e.g. restart reminders)
+    { "label": "Popover: Large", "command": "./oc-ui preset l", "confirm": "Applied. Restart OpenCode to load it." },
+    // grayed out with "(tool missing)" when the file does not exist
+    { "label": "Trim sessions", "command": "./trim --keep 15", "requireFile": "/path/to/trim" },
+    // expandable submenu (recursive)
+    { "label": "More", "submenu": [ { "label": "Child", "command": "..." } ] },
     { "separator": true }
   ]
 }

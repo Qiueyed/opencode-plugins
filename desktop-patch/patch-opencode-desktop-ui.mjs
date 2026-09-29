@@ -547,12 +547,22 @@ function patchModelBadges(workdir) {
 
 /** v4: native "Plugins" application menu. Injected into the MAIN bundle at
  * the Menu.setApplicationMenu site. The wrapper clones the app's own
- * MenuItem constructor from a live item (no new imports needed; execFile and
- * spawnSync are already module-scope imports there), then appends a
- * "Plugins" submenu built from REGISTRY_FILE. Registry entry shapes:
- *   { "label": "...", "command": "shell command" }         action item
- *   { "label": "...", "command": "...", "stateFile": "..." } checkbox, checked
- *                                                          iff file exists
+ * MenuItem constructor from a live item (no new imports needed; execFile,
+ * spawnSync and dialog are already module-scope imports there), then appends
+ * a "Plugins" submenu built from REGISTRY_FILE. Registry entry shapes:
+ *   { "label": "...", "command": "shell command" }            action item
+ *   { "label": "...", "command": "...", "stateFile": "..." }  checkbox, checked
+ *                                                             iff file exists
+ *   { "label": "...", "command": "...", "confirm": "msg" }    show an info
+ *                                                             dialog after
+ *                                                             running (e.g.
+ *                                                             "restart to
+ *                                                             apply")
+ *   { "label": "...", "submenu": [ ...entries... ] }          nested submenu
+ *   { "label": "...", "command": "...", "requireFile": "p" }  grayed out with
+ *                                                             "(tool missing)"
+ *                                                             when the file
+ *                                                             does not exist
  *   { "separator": true }
  * Any plugin (or the user) can append entries; restart the app to reload. */
 function pluginsMenuBlock() {
@@ -567,38 +577,68 @@ function ocLoadPluginsRegistry() {
     return [];
   }
 }
+function ocFileExists(p) {
+  try {
+    return spawnSync("/usr/bin/test", ["-e", String(p)]).status === 0;
+  } catch {
+    return false;
+  }
+}
+function ocMenuItems(entries, MI) {
+  const out = [];
+  for (const e of entries || []) {
+    try {
+      if (e && e.separator) {
+        out.push(new MI({ type: "separator" }));
+        continue;
+      }
+      if (!e || typeof e.label !== "string") continue;
+      let label = String(e.label).slice(0, 90);
+      let enabled = true;
+      if (typeof e.requireFile === "string" && e.requireFile && !ocFileExists(e.requireFile)) {
+        enabled = false;
+        label = label + "  (tool missing)";
+      }
+      if (Array.isArray(e.submenu)) {
+        const sub = ocMenuItems(e.submenu, MI);
+        out.push(new MI({ label, enabled: sub.length > 0, submenu: sub }));
+        continue;
+      }
+      if (typeof e.command !== "string" || !e.command) continue;
+      const opts = {
+        label,
+        enabled,
+        click: () => {
+          try {
+            execFile("/bin/zsh", ["-c", String(e.command).slice(0, 800)], {}, () => {});
+          } catch {}
+          if (typeof e.confirm === "string" && e.confirm) {
+            try {
+              dialog.showMessageBox({
+                type: "info",
+                title: "OpenCode",
+                message: String(e.confirm).slice(0, 200),
+                buttons: ["OK"],
+              });
+            } catch {}
+          }
+        },
+      };
+      if (typeof e.stateFile === "string" && e.stateFile) {
+        opts.type = "checkbox";
+        opts.checked = ocFileExists(e.stateFile);
+      }
+      out.push(new MI(opts));
+    } catch {}
+  }
+  return out;
+}
 function ocWithPluginsMenu(menu) {
   try {
     if (!menu || !menu.items || menu.items.length === 0) return menu;
     if (menu.items.some((it) => it && it.label === "Plugins")) return menu;
     const MI = menu.items[0].constructor;
-    const built = [];
-    for (const e of ocLoadPluginsRegistry()) {
-      try {
-        if (e && e.separator) {
-          built.push(new MI({ type: "separator" }));
-          continue;
-        }
-        if (!e || typeof e.label !== "string" || typeof e.command !== "string") continue;
-        const opts = {
-          label: String(e.label).slice(0, 90),
-          click: () => {
-            try {
-              execFile("/bin/zsh", ["-c", String(e.command).slice(0, 500)], {}, () => {});
-            } catch {}
-          },
-        };
-        if (typeof e.stateFile === "string" && e.stateFile) {
-          opts.type = "checkbox";
-          try {
-            opts.checked = spawnSync("/usr/bin/test", ["-e", String(e.stateFile)]).status === 0;
-          } catch {
-            opts.checked = false;
-          }
-        }
-        built.push(new MI(opts));
-      } catch {}
-    }
+    const built = ocMenuItems(ocLoadPluginsRegistry(), MI);
     if (built.length > 0) menu.append(new MI({ label: "Plugins", submenu: built }));
   } catch {}
   return menu;
@@ -677,25 +717,35 @@ function patchPluginsMenu(workdir) {
 /** Seed the registry file once so the menu is populated out of the box.
  * Never overwrites user edits. Menu entries that invoke oc-ui reference it
  * NEXT TO THIS SCRIPT (self-locating), so the registry works from any
- * install location. */
+ * install location. Entries that depend on an external tool carry
+ * requireFile, so they gray themselves out when the tool is absent. */
 function seedRegistry() {
   if (fs.existsSync(REGISTRY_FILE)) return;
   const here = path.dirname(path.resolve(process.argv[1] || "."));
   const ocui = `sh "${path.join(here, "oc-ui")}"`;
+  const home = process.env.HOME || "~";
+  const plug = (p) => `${home}/.config/opencode/plugins/${p}`;
+  const RESTART = "Applied. Quit OpenCode (Cmd+Q) and reopen to load it.";
   const seed = {
-    $comment: "OpenCode Plugins menu registry. Any plugin can append items. Restart the app after edits. Entry shapes: {label, command}, {label, command, stateFile} (checkbox), {separator:true}.",
+    $comment:
+      "OpenCode Plugins menu registry. Any plugin can append items. Restart the app after registry edits. Entry shapes: {label, command}; {label, command, stateFile} checkbox; {label, command, confirm} info dialog after click; {label, submenu:[...]} nested; {label, command, requireFile} grayed when file missing; {separator:true}.",
     items: [
       {
         label: "Vision-guard: allow image reads (bypass)",
         command:
           "test -e \"$HOME/.config/opencode/vision-guard.off\" && rm \"$HOME/.config/opencode/vision-guard.off\" || touch \"$HOME/.config/opencode/vision-guard.off\"",
-        stateFile: process.env.HOME + "/.config/opencode/vision-guard.off",
+        stateFile: home + "/.config/opencode/vision-guard.off",
+        requireFile: plug("vision-guard.ts"),
       },
-      { separator: true },
-      { label: "Model popover: Small 20x28", command: `${ocui} preset s` },
-      { label: "Model popover: Medium 24x32", command: `${ocui} preset m` },
-      { label: "Model popover: Large 30x40", command: `${ocui} preset l` },
-      { label: "Model popover: X-Large 36x48", command: `${ocui} preset xl` },
+      {
+        label: "Model popover",
+        submenu: [
+          { label: "Small 20x28", command: `${ocui} preset s`, requireFile: path.join(here, "oc-ui"), confirm: RESTART },
+          { label: "Medium 24x32", command: `${ocui} preset m`, requireFile: path.join(here, "oc-ui"), confirm: RESTART },
+          { label: "Large 30x40", command: `${ocui} preset l`, requireFile: path.join(here, "oc-ui"), confirm: RESTART },
+          { label: "X-Large 36x48", command: `${ocui} preset xl`, requireFile: path.join(here, "oc-ui"), confirm: RESTART },
+        ],
+      },
       { separator: true },
       { label: "Open plugins folder", command: "open \"$HOME/.config/opencode/plugins\"" },
       { label: "Open patches folder", command: "open \"$HOME/.config/opencode/patches\"" },
