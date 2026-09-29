@@ -50,13 +50,16 @@ ASAR="/Applications/OpenCode.app/Contents/Resources/app.asar"
 if [ -f "$ASAR" ] && command -v npx >/dev/null; then
   TMPD=$(mktemp -d)
   if npx --yes @electron/asar extract "$ASAR" "$TMPD" >/dev/null 2>&1; then
-    for name in opencode-plugins-menu-patch; do
-      OPEN_N=$(grep -c "== ${name}" "$TMPD/out/main/index.js" 2>/dev/null || echo 0)
-      END_N=$(grep -c "== end ${name} ==" "$TMPD/out/main/index.js" 2>/dev/null || echo 0)
-      if [ "$OPEN_N" -lt 1 ] || [ "$END_N" -ne "$OPEN_N" ]; then
-        fails=$((fails+1)); say "FAIL marker pairing: ${name} (open=${OPEN_N} end=${END_N})"
+      check_pair() {
+      local file="$1" name="$2"
+      local o e
+      o=$(grep -c "== ${name}" "$file" 2>/dev/null || echo 0)
+      e=$(grep -c "== end ${name} ==" "$file" 2>/dev/null || echo 0)
+      if [ "${o:-0}" -lt 1 ] || [ "${e:-0}" -ne "${o:-0}" ]; then
+        fails=$((fails+1)); say "FAIL marker pairing: ${name} (open=${o} end=${e})"
       fi
-    done
+    }
+    check_pair "$TMPD/out/main/index.js" "opencode-plugins-menu-patch"
     say "ok   marker pairing (shipped bundle)"
   else
     say "skip marker pairing (bundle extract failed)"
@@ -71,7 +74,8 @@ echo "---"
 if command -v shellcheck >/dev/null 2>&1; then
   SH_FILES=()
   for f in "$D"/tools/*.sh "$D/tools/trim-keep" "$D/tools/state-toggle" "$D/tools/janitor.sh" "$R/janitor/janitor.sh" "$R/janitor/trim-keep" "$R/desktop-patch/oc-ui"; do
-    [ -f "$f" ] && SH_FILES+=("$f")
+    # ShellCheck speaks sh/bash only - skip zsh scripts (SC1071)
+    [ -f "$f" ] && ! head -1 "$f" | grep -q "#!.*/zsh" && SH_FILES+=("$f")
   done
   ERRS=$(shellcheck -S warning "${SH_FILES[@]}" 2>/dev/null | grep -c "SC[0-9]" || true)
   STYLE=$(shellcheck -S style "${SH_FILES[@]}" 2>/dev/null | grep -c "SC[0-9]" || true)

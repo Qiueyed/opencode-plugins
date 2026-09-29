@@ -330,7 +330,7 @@ SELECT changes();" 2>/dev/null | tail -1 | tr -d '[:space:]')
 
 still_closed
 # --- vacuum only when due (>= 10% free pages) ---
-read -r PC FC PSZ <<<"$(sqlite3 -separator ' ' "$DB" ".timeout 5000" "SELECT page_count, freelist_count, page_size FROM pragma_page_count, pragma_freelist_count, pragma_page_size;" 2>/dev/null)"
+read -r PC FC <<<"$(sqlite3 -separator ' ' "$DB" ".timeout 5000" "SELECT page_count, freelist_count FROM pragma_page_count, pragma_freelist_count;" 2>/dev/null)"
 SIZE_BEFORE=$(stat -f %z "$DB")
 if [ -n "$PC" ] && [ "$FC" -gt 0 ] && [ $(( FC * 100 / PC )) -ge 10 ]; then
   sqlite3 "$DB" ".timeout 10000" "VACUUM;" 2>/dev/null \
