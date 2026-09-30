@@ -1,7 +1,57 @@
 #!/bin/bash
 # class-sweep - automated bug-class sweeps from instructions/bug-hunting.md.
 # Exit 1 on ANY hit; run after multi-file edits, migrations, or publishes.
+#
+#   class-sweep.sh                      opencode config + plugins repo (default)
+#   class-sweep.sh --project <dir>      universal checks for any managed project:
+#                                       .bak clutter, contracts.json validation,
+#                                       doc-reference staleness (Godot scene-
+#                                       manifest + save-version patterns)
 set -u
+
+# ---------- project mode (universal checks, contracts.json-driven) ----------
+if [ "${1:-}" = "--project" ]; then
+  PROJ="${2:?usage: class-sweep.sh --project <dir>}"
+  cd "$PROJ" || exit 1
+  fails=0
+  say() { printf '%s\n' "$*"; }
+  # Godot save-file pattern: a project's contract graph is DECLARED, the sweep
+  # validates the declaration against reality.
+  if [ -f contracts.json ]; then
+    python3 - <<'PY' || fails=$((fails+1))
+import json, os, sys
+c = json.load(open("contracts.json"))
+missing = [p for p in c.get("mustExist", []) if not os.path.exists(p)]
+for doc in c.get("docs", []):
+    f = doc.get("file", "")
+    for ref in doc.get("references", []):
+        if not os.path.exists(ref):
+            missing.append(f"{f} -> {ref}")
+if missing:
+    print("FAIL contract violations:")
+    for m in missing:
+        print("     ", m)
+    sys.exit(1)
+print(f"ok   contracts: {len(c.get('mustExist', []))} paths + doc refs validated")
+PY
+  else
+    say "note no contracts.json (declare one: {\"mustExist\": [...], \"docs\": [...]})"
+  fi
+  # .bak clutter: git holds history; stray .bak files are Class 2 bait
+  BAKS=$(find . -name "*.bak*" -not -path "./addons/*" -not -path "./archive/*" -not -path "./.git/*" | wc -l | tr -d ' ')
+  if [ "$BAKS" -gt 5 ]; then
+    fails=$((fails+1)); say "FAIL .bak clutter: $BAKS files (git is the history; archive/ the rest)"
+    find . -name "*.bak*" -not -path "./addons/*" -not -path "./archive/*" -not -path "./.git/*" | head -5 | sed 's/^/     /'
+  else
+    say "ok   .bak clutter: $BAKS"
+  fi
+  # pairing note: if the project ships its own deeper probe, remind about it
+  grep -q "consistency-probe" AGENTS.md 2>/dev/null && say "note project has its own consistency-probe - run it for registry/JSON parity"
+  echo "---"
+  if [ "$fails" -eq 0 ]; then say "PROJECT SWEEP: ALL CLEAN"; else say "PROJECT SWEEP: $fails CLASS(ES) FAILED"; exit 1; fi
+  exit 0
+fi
+
 D="${1:-$HOME/.config/opencode}"
 R="${2:-$HOME/Documents/github/opencode-plugins}"
 fails=0
@@ -72,6 +122,17 @@ else
   say "skip marker pairing (bundle or npx unavailable)"
 fi
 echo "---"
+# Godot save-version pattern: state.json carries a schema; consumers and this sweep can key migrations on it
+python3 - "$D/state/state.json" <<'PY' || fails=$((fails+1))
+import json, sys
+try:
+    st = json.load(open(sys.argv[1]))
+except Exception as e:
+    print("FAIL state.json unparseable:", e); sys.exit(1)
+if st.get("schema") != 2:
+    print("FAIL state.json schema", st.get("schema"), "!= 2 (migration needed)"); sys.exit(1)
+print("ok   state.json schema 2,", len(st) - 1, "keys")
+PY
 # Upstream pass: generic language checks defer to the established tools when
 # installed (class-sweep only adds what no generic tool can know: project contracts)
 if command -v shellcheck >/dev/null 2>&1; then
