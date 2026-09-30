@@ -20,7 +20,7 @@
  *   debugging, not duty.
  */
 import { execFile } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { basename } from "node:path"
 
 const SHELL_RE = /\.(sh|zsh|bash)$/
@@ -52,6 +52,21 @@ export const Gate = (async ({ client }: { client: any }) => {
     }
   }
   const REPO = HOME + "/Documents/github/opencode-plugins"
+  const GAME = HOME + "/Documents/Godot/planetary-defense-game"
+  const SWEEP_STATUS = CFG + "/state/sweep-status.json"
+  // Designated-reader rule: verification nobody reads is theater. Failures
+  // toast (the human reads now); every result also lands in sweep-status.json
+  // (the next session reads it in one file).
+  const markStatus = (gate: string, ok: boolean, detail: string) => {
+    try {
+      let cur: any = {}
+      try {
+        cur = JSON.parse(readFileSync(SWEEP_STATUS, "utf8"))
+      } catch {}
+      cur[gate] = { t: Date.now(), ok, detail: detail.slice(0, 160) }
+      writeFileSync(SWEEP_STATUS, JSON.stringify(cur, null, 2))
+    } catch {}
+  }
 
   const toast = async (title: string, message: string) => {
     try {
@@ -104,7 +119,10 @@ export const Gate = (async ({ client }: { client: any }) => {
       (err, stdout) => {
         if (err) {
           const first = String(stdout).split("\n").find((l) => /error TS/.test(l)) || "tsc failed"
+          markStatus("tsc", false, first)
           void toast("GATE: tsc", first.slice(0, 280))
+        } else {
+          markStatus("tsc", true, String(files.length) + " files clean")
         }
       },
     )
@@ -122,8 +140,34 @@ export const Gate = (async ({ client }: { client: any }) => {
             .filter((l) => l.startsWith("FAIL"))
             .slice(0, 3)
             .join("\n")
+          markStatus(full ? "class-sweep-full" : "class-sweep", false, fails || "sweep failed")
           void toast("GATE: class-sweep", (fails || "sweep failed").slice(0, 280))
+        } else {
+          markStatus(full ? "class-sweep-full" : "class-sweep", true, "clean (fast=" + (full ? "0" : "1") + ")")
         }
+      },
+    )
+  }
+
+  const runGameSweeps = () => {
+    execFile(
+      "bash",
+      [CFG + "/tools/gd-sweep.sh", GAME],
+      { timeout: 60_000 },
+      (err, stdout) => {
+        const n = String(stdout).match(/findings: (\d+)/)?.[1]
+        markStatus("gd-sweep", !err, err ? "failed" : n + " findings")
+        if (err) void toast("GATE: gd-sweep", (String(stdout).split("\n").filter((l) => /^(WARN|CHECK)/.test(l)).slice(0, 3).join("\n") || "gd-sweep failed").slice(0, 280))
+      },
+    )
+    execFile(
+      "bash",
+      [CFG + "/tools/class-sweep.sh", "--project", GAME],
+      { timeout: 60_000 },
+      (err, stdout) => {
+        const fails = String(stdout).split("\n").filter((l) => l.startsWith("FAIL")).join("; ")
+        markStatus("project-sweep", !err, err ? fails || "failed" : "clean")
+        if (err) void toast("GATE: project sweep", (fails || "project sweep failed").slice(0, 280))
       },
     )
   }
@@ -160,6 +204,7 @@ export const Gate = (async ({ client }: { client: any }) => {
             const patcherTouched = files.some((f) => /patch-opencode-.*\.mjs$/.test(f))
             runSweep(patcherTouched)
           }
+          if (files.some((f) => f.startsWith(GAME) && /\.gd$/.test(f))) runGameSweeps()
         } catch {}
       } catch {}
     },
