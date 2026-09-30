@@ -39,6 +39,9 @@
 - JSONC vs JSON: opencode tolerates trailing commas, python json.load does not - normalize before scripting edits against opencode.jsonc.
 - Error dialects: the same TypeError prints differently under Bun CLI vs Node server - grep BOTH patterns when hunting.
 - Source: engineering-lessons.md (Injected Code & Artifact Patching, Testing Methodology, Cross-Stack Pitfalls sections), file-handling-safety.md (encoding/Unicode byte traps), references/ai-collaboration-governance.md (narratives).
+## Designated-reader rule (user realization)
+- Verification nobody reads is theater. Every verification path needs a NAMED reader: in-turn sweeps are read by the AI now; gate failures toast for the human now; EVERY gate result persists to state/sweep-status.json - the next session reads system health in one file before trusting anything.
+- Do not add print-and-pray surfaces: if a check output has no reader (human toast, AI in-turn, or the status ledger), delete the check or wire a reader.
 ## OFFLOAD PRINCIPLE (user directive)
 - The AI builds and fixes; the MACHINERY verifies. Never assign a mechanical check to the model when a gate can run it: gate.ts (session.idle) owns shellcheck/tsc/class-sweep triggers, the janitor owns close-time maintenance, run-all.mjs owns the fuzz suite.
 - The playbook\x27s manual sweep instructions are FALLBACKS (debugging feedback, or when a gate is missing) - not the AI\x27s standing duty.
