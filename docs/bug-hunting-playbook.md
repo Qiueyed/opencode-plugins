@@ -28,6 +28,7 @@
 ## Class 6: stale claims repeated as fact
 - Every fact from surveys, other agents, or old worklog entries gets re-verified against disk before entering docs; unverifyable claims are written as "reported, not re-verified".
 - Provenance drift is real: repo copies and local copies diverge silently; sweep all twins bidirectionally (repo file vs installed twin) after any feature lands on either side.
+- git fetch BEFORE flagging drift: a local-vs-remote difference may just be a stale clone (2026-09-30: the "third oc-ui copy" drift flag was a retired tombstone repo the local had not pulled - fetched first would have resolved it in one command).
 ## Class 7: historical incident classes (full narratives in the source docs - read before touching these areas)
 - Injected-block markers must SELF-CLOSE on their own line: an unclosed /* turns all following code into one comment - valid syntax, runtime ReferenceError (2026-09-23 asar incident). Automated check: class-sweep verifies open/end marker pairing in the shipped bundle.
 - Idempotent prependers need STRIP LOOPS: a patcher that adds without removing its previous block stacks copies; duplicate declarations are a launch SyntaxError that survived two verification passes.
