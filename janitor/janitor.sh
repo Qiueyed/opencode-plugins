@@ -42,6 +42,9 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 # mid-sweep relaunch guard: a reopen during the multi-second sweep must not
 # turn DELETEs/VACUUM against a live app - abort, the next quit retries.
 still_closed() {
+  # ps|grep, not pgrep: macOS pgrep misses Electron main processes and pgrep -f
+  # self-matches the caller (system-modification-guardrails.md) - SC2009 by design
+  # shellcheck disable=SC2009
   if ps axo command= 2>/dev/null | grep -q "$PATTERN"; then
     log "relaunch detected mid-sweep - aborting (retried at next quit)"
     exit 0
@@ -75,6 +78,8 @@ trap on_exit EXIT
 # kill the sidecar without running them (observed twice in practice:
 # produced zero spawns), and crash-class exits never ran them at all.
 if [ -z "$JANITOR_SKIP_WAIT" ]; then
+  # same ps|grep rationale as still_closed - SC2009 by design
+  # shellcheck disable=SC2009
   while ps axo command= 2>/dev/null | grep -q "$PATTERN"; do
     sleep 2
   done
@@ -144,7 +149,7 @@ SELECT COUNT(*) FROM message m WHERE EXISTS (
   take_trim_backup
   while IFS='|' read -r SID CT CT_ROW; do
     [ -n "$SID" ] || continue
-    QSID=$(echo "$SID" | sed "s/'/''/g")
+    QSID=${SID//\'/\'\'}
     # DELETE and SELECT changes() in the SAME connection (a second connection's
     # changes() is always 0 - caught by a review; the trim worked
     # but TRIM_TOTAL stayed 0 and the log line never fired).
@@ -180,7 +185,7 @@ UI_TOTAL=0
 if [ -n "$UI_MARKED" ]; then
   while IFS='|' read -r SID TITLE; do
     [ -n "$SID" ] || continue
-    QSID=$(echo "$SID" | sed "s/'/''/g")
+    QSID=${SID//\'/\'\'}
     KEEP=$(echo "$TITLE" | sed -n 's/.*⏳TRIM\([0-9][0-9]*\).*/\1/p')
     case "$KEEP" in
       ''|*[!0-9]*)
@@ -245,7 +250,7 @@ if [ -n "$IMG_MARKED" ]; then
   take_img_backup
   while IFS='|' read -r SID TITLE; do
     [ -n "$SID" ] || continue
-    QSID=$(echo "$SID" | sed "s/'/''/g")
+    QSID=${SID//\'/\'\'}
     sqlite3 "$DB" ".timeout 5000" "
 UPDATE session SET title = RTRIM(REPLACE(REPLACE(title, ' ⏳IMGS', ''), '⏳IMGS', '')) WHERE id = '$QSID';" 2>/dev/null
     B=$(sqlite3 "$DB" ".timeout 5000" "
@@ -267,7 +272,7 @@ if [ -n "$READS_MARKED" ]; then
   take_img_backup
   while IFS='|' read -r SID TITLE; do
     [ -n "$SID" ] || continue
-    QSID=$(echo "$SID" | sed "s/'/''/g")
+    QSID=${SID//\'/\'\'}
     sqlite3 "$DB" ".timeout 5000" "
 UPDATE session SET title = RTRIM(REPLACE(REPLACE(title, ' ⏳READS', ''), '⏳READS', '')) WHERE id = '$QSID';" 2>/dev/null
     B=$(sqlite3 "$DB" ".timeout 5000" "
@@ -333,9 +338,11 @@ still_closed
 read -r PC FC <<<"$(sqlite3 -separator ' ' "$DB" ".timeout 5000" "SELECT page_count, freelist_count FROM pragma_page_count, pragma_freelist_count;" 2>/dev/null)"
 SIZE_BEFORE=$(stat -f %z "$DB")
 if [ -n "$PC" ] && [ "$FC" -gt 0 ] && [ $(( FC * 100 / PC )) -ge 10 ]; then
-  sqlite3 "$DB" ".timeout 10000" "VACUUM;" 2>/dev/null \
-    && log "vacuum ok: orphans seq=$SEQ msg=$MSG part=$PRT; db $((SIZE_BEFORE/1048576))MB -> $(( $(stat -f %z "$DB") / 1048576 ))MB (freelist was ${FC}/${PC} pages)" \
-    || log "vacuum FAILED: orphans seq=$SEQ msg=$MSG part=$PRT; db left at $((SIZE_BEFORE/1048576))MB"
+  if sqlite3 "$DB" ".timeout 10000" "VACUUM;" 2>/dev/null; then
+    log "vacuum ok: orphans seq=$SEQ msg=$MSG part=$PRT; db $((SIZE_BEFORE/1048576))MB -> $(( $(stat -f %z "$DB") / 1048576 ))MB (freelist was ${FC}/${PC} pages)"
+  else
+    log "vacuum FAILED: orphans seq=$SEQ msg=$MSG part=$PRT; db left at $((SIZE_BEFORE/1048576))MB"
+  fi
 else
   log "sweep only: orphans seq=$SEQ msg=$MSG part=$PRT; vacuum not due (freelist ${FC:-?}/${PC:-?} pages)"
 fi

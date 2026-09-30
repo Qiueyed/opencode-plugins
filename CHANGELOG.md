@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-09-30
+- **shellcheck zero**: all 15 unique style/info findings fixed across the six shell tools (param expansion over sed, grep -cv over pipes, find over ls, quote-doubling via expansion, if/else over && ||); 2 SC2009 kept by guardrails mandate (disable-commented); the report's 22/9 double-count reconciled to 15/6 (repo twins).
+
 ## 2026-09-29
 - **vision-guard v2 (experimental redact)**: 3-way judge verdict (allow/redact/block) + utility gate; redaction = PIL edge-strip crop (+5% margin, fail-closed to block on any redaction failure); menu toggle + env mode; 16-case hostile battery. Discovered on the way: sips --cropOffset silently no-ops with -c (center-only crop).
 

@@ -24,6 +24,7 @@
 - A hash/diff check must compare two DIFFERENT sources; `git hash-object` on the same path twice always "MATCHES".
 - Run the checker named by the shebang: `bash -n` on a `#!/bin/zsh` script reports valid zsh (`<->`) as syntax errors and vice versa.
 - Unfiltered output or it did not happen: a failing test behind `| tail -2` is an undetected failure.
+- Escape-sequence strings (`$x27'\n`, ANSI, $x27\\n' literals) NEVER go through editor search-replace: the tool layer re-parses them and can duplicate blocks or drop garbage fragments mid-file (2026-09-30 incident: class-sweep.sh corrupted on first attempt, restored from archive .bak). Apply such edits via a script that asserts replacement COUNT before writing, and archive-.bak first when the file is git-untracked.
 ## Class 6: stale claims repeated as fact
 - Every fact from surveys, other agents, or old worklog entries gets re-verified against disk before entering docs; unverifyable claims are written as "reported, not re-verified".
 - Provenance drift is real: repo copies and local copies diverge silently; sweep all twins bidirectionally (repo file vs installed twin) after any feature lands on either side.

@@ -22,10 +22,10 @@ n=$(count x "yield "); report "WARN" "yield (Godot 3 keyword, dead in 4.x)" "$n"
 n=$(count x "^[[:space:]]*export "); report "WARN" "export var (3.x; 4.x uses @export)" "$n" "^[[:space:]]*export "; total=$((total+n))
 # --- warning class (silent wrong behavior) ---
 n=$(count x "\.position\.x =="); report "CHECK" "float equality on position.x" "$n" "\.position\.x =="; total=$((total+n))
-n=$(grep -rn --include="*.gd" -E "== *[0-9]+\.[0-9]+" . 2>/dev/null | grep -v "\.bak" | wc -l | tr -d ' '); report "CHECK" "float literal equality (== 1.0 style)" "$n"; total=$((total+n))
+n=$(grep -rn --include="*.gd" -E "== *[0-9]+\.[0-9]+" . 2>/dev/null | grep -cv "\.bak"); report "CHECK" "float literal equality (== 1.0 style)" "$n"; total=$((total+n))
 n=$(count x "randi() %"); report "CHECK" "randi() % n (modulo bias)" "$n" "randi() %"; total=$((total+n))
-n=$(grep -rn --include="*.gd" -E "get_node\(\"" . 2>/dev/null | grep -v "\.bak" | wc -l | tr -d ' '); report "CHECK" "string get_node paths (break on rename; prefer %UniqueName)" "$n"; total=$((total+n))
-n=$(grep -rn --include="*.gd" -E "_process\(" . 2>/dev/null | grep -v "\.bak" | grep -vE "_physics_process" | wc -l | tr -d ' '); report "CHECK" "_process defs (physics bodies belong in _physics_process)" "$n"; total=$((total+n))
+n=$(grep -rn --include="*.gd" -E "get_node\(\"" . 2>/dev/null | grep -cv "\.bak"); report "CHECK" "string get_node paths (break on rename; prefer %UniqueName)" "$n"; total=$((total+n))
+n=$(grep -rn --include="*.gd" -E "_process\(" . 2>/dev/null | grep -v "\.bak" | grep -cvE "_physics_process"); report "CHECK" "_process defs (physics bodies belong in _physics_process)" "$n"; total=$((total+n))
 # --- info ---
 n=$(count x "@onready"); report "INFO" "@onready vars (access only after _ready)" "$n" ""
 n=$(count x "\.connect("); report "INFO" "connect calls (Check return Error + disconnect on free)" "$n" ""
