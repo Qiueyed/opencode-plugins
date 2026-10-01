@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-09-30 (later)
+- **gd-sweep: symbol attribution + two lesson classes**: sample findings carry their enclosing symbol when `addons/outline_dump/outline.md` exists (optional enrichment; missing file = byte-identical standalone output, explicit "standalone mode" note). New checks: `get_texture().get_size()` capture normalization (macOS rt-vs-image disagreement) and load-time `OS.get_cmdline_user_args` reads. Fixed: `sample()` was BRE while counts were ERE, so parenthesized patterns silently printed no samples (sample is now `-E`, patterns normalized). Scan scope excludes `archive/` snapshot dirs. Counts-vs-samples agreement is now verifiable by eye on every run.
+
 ## 2026-09-30
 - **shellcheck zero**: all 15 unique style/info findings fixed across the six shell tools (param expansion over sed, grep -cv over pipes, find over ls, quote-doubling via expansion, if/else over && ||); 2 SC2009 kept by guardrails mandate (disable-commented); the report's 22/9 double-count reconciled to 15/6 (repo twins).
 

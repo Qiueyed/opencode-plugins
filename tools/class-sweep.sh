@@ -45,6 +45,65 @@ PY
   else
     say "ok   .bak clutter: $BAKS"
   fi
+  # scene integrity: every ext_resource path in every .tscn/.tres must exist on disk
+  # (a renamed/deleted dependency breaks the scene silently until it loads)
+  python3 - <<'PY' || fails=$((fails+1))
+import os, re, sys
+missing = []
+scanned = 0
+for root, dirs, files in os.walk("."):
+    dirs[:] = [d for d in dirs if d not in (".git", "archive", "addons")]
+    for f in files:
+        if not f.endswith((".tscn", ".tres")):
+            continue
+        scanned += 1
+        p = os.path.join(root, f)
+        try:
+            text = open(p, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for m in re.finditer(r'^\[ext_resource[^\]]*path="(res://[^"]+)"', text, re.M):
+            rel = m.group(1)[len("res://"):]
+            if rel and not os.path.exists(rel):
+                missing.append(f"{p} -> {m.group(1)}")
+if missing:
+    print(f"FAIL scene ext_resource missing: {len(missing)}")
+    for x in missing[:5]:
+        print("     ", x)
+    sys.exit(1)
+print(f"ok   scene integrity: {scanned} scenes/resources, all ext_resource paths exist")
+PY
+  # counter drift: STATUS.md's counters line must match WORKLOG.md's actual max doc/pass (ledger desync = stale number source).
+  # Convention-optional: projects without STATUS/WORKLOG skip cleanly.
+  python3 - <<'PY' || fails=$((fails+1))
+import os, re, sys
+if not (os.path.exists("STATUS.md") and os.path.exists("WORKLOG.md")):
+    print("skip counter drift (no STATUS.md/WORKLOG.md convention)")
+    sys.exit(0)
+st = open("STATUS.md", encoding="utf-8", errors="replace").read()
+m = re.search(r"counters: doc (\d+), pass (\d+)", st)
+if not m:
+    print("FAIL counter drift: STATUS.md has no 'counters: doc N, pass M' line"); sys.exit(1)
+sdoc, spass = int(m.group(1)), int(m.group(2))
+wdoc = wpass = 0
+for line in open("WORKLOG.md", encoding="utf-8", errors="replace"):
+    if not line.startswith("## "):
+        continue
+    h = re.search(r"\[doc (\d+)(?:, pass (\d+))?\]", line)
+    if not h:
+        continue
+    wdoc = max(wdoc, int(h.group(1)))
+    if h.group(2):
+        wpass = max(wpass, int(h.group(2)))
+bad = []
+if wdoc != sdoc:
+    bad.append(f"doc STATUS={sdoc} WORKLOG={wdoc}")
+if wpass != spass:
+    bad.append(f"pass STATUS={spass} WORKLOG={wpass}")
+if bad:
+    print("FAIL counter drift: " + "; ".join(bad)); sys.exit(1)
+print(f"ok   counters: doc {sdoc} pass {spass} match WORKLOG")
+PY
   # pairing note: if the project ships its own deeper probe, remind about it
   grep -q "consistency-probe" AGENTS.md 2>/dev/null && say "note project has its own consistency-probe - run it for registry/JSON parity"
   echo "---"
@@ -106,8 +165,9 @@ elif [ -f "$ASAR" ] && command -v npx >/dev/null; then
       check_pair() {
       local file="$1" name="$2"
       local o e
-      o=$(grep -c "== ${name}" "$file" 2>/dev/null || echo 0)
-      e=$(grep -c "== end ${name} ==" "$file" 2>/dev/null || echo 0)
+      # grep -c prints 0 AND exits 1 on no-match: dropping the count here silently swallowed the FAIL case this check exists for
+      o=$(grep -c "== ${name}" "$file" 2>/dev/null); o=${o:-0}
+      e=$(grep -c "== end ${name} ==" "$file" 2>/dev/null); e=${e:-0}
       if [ "${o:-0}" -lt 1 ] || [ "${e:-0}" -ne "${o:-0}" ]; then
         fails=$((fails+1)); say "FAIL marker pairing: ${name} (open=${o} end=${e})"
       fi
@@ -141,12 +201,17 @@ if command -v shellcheck >/dev/null 2>&1; then
     # ShellCheck speaks sh/bash only - skip zsh scripts (SC1071)
     [ -f "$f" ] && ! head -1 "$f" | grep -q "#!.*/zsh" && SH_FILES+=("$f")
   done
-  ERRS=$(shellcheck -S warning "${SH_FILES[@]}" 2>/dev/null | grep -c "SC[0-9]" || true)
-  STYLE=$(shellcheck -S style "${SH_FILES[@]}" 2>/dev/null | grep -c "SC[0-9]" || true)
-  if [ "${ERRS:-0}" -gt 0 ]; then
-    fails=$((fails+1)); say "FAIL shellcheck warnings+: $ERRS"
+  # stock bash 3.2 + set -u: an empty array aborts on "${SH_FILES[@]}"
+  if [ "${#SH_FILES[@]}" -eq 0 ]; then
+    say "skip shellcheck (no candidate files)"
   else
-    say "ok   shellcheck: 0 warnings+ (${STYLE:-0} style notes)"
+    ERRS=$(shellcheck -S warning "${SH_FILES[@]}" 2>/dev/null | grep -c "SC[0-9]" || true)
+    STYLE=$(shellcheck -S style "${SH_FILES[@]}" 2>/dev/null | grep -c "SC[0-9]" || true)
+    if [ "${ERRS:-0}" -gt 0 ]; then
+      fails=$((fails+1)); say "FAIL shellcheck warnings+: $ERRS"
+    else
+      say "ok   shellcheck: 0 warnings+ (${STYLE:-0} style notes)"
+    fi
   fi
 else
   say "skip shellcheck (not installed - brew install shellcheck)"
