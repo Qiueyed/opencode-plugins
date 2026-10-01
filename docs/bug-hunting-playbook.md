@@ -63,6 +63,7 @@
 - String get_node("A/B") paths break on scene renames - prefer %UniqueName (6 instances).
 - Physics bodies belong in _physics_process, not _process (38 _process defs in planetary-defense - mostly fine for non-physics sim logic, check case by case).
 - connect() returns an Error: check it and disconnect on free (205 connect sites in planetary-defense).
+- .gdignore is NOT enough for archived snapshot code: the editor scan honors it but DIRECT loads (restore buffers, layout, recent files) bypass it and re-parse duplicate class_name copies every start ("hides a global script class" cascade, 2026-09-30). Purge .godot caches + rebuild the class cache with the editor closed: tools/godot-cache-purge.sh; class-sweep --project now FAILs on both the missing .gdignore and stale cache references.
 ## Upstream-first
 - Generic language checks defer to the established tools when available: shellcheck (shell - SC-series), semgrep (custom pattern rules), typescript-eslint (no-require-imports, no-empty), yamllint/actionlint/jq. Install before hand-writing greps for what they already cover.
 - class-sweep.sh keeps only PROJECT-SPECIFIC contracts no generic tool can know (state paths, marker pairing, registry validity, per-patcher gates) + glue that runs the upstream tools when installed.

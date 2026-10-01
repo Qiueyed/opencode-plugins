@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-09-30 (later still)
+- **godot-cache-purge + archive guard**: moving snapshot scripts into archive/ triggered the editor class-collision cascade - .gdignore covers the scan but editor CACHES re-parse archive paths via direct loads on every start ("hides a global script class"). New tools/godot-cache-purge.sh (strips res://archive/ from metadata/layout/script-editor caches, rebuilds the class cache headlessly, editor-closed guards); class-sweep --project now FAILs on missing archive/.gdignore and stale cache references. Playbook lesson: .gdignore is not enough.
+
 ## 2026-09-30 (later)
 - **gd-sweep: symbol attribution + two lesson classes**: sample findings carry their enclosing symbol when `addons/outline_dump/outline.md` exists (optional enrichment; missing file = byte-identical standalone output, explicit "standalone mode" note). New checks: `get_texture().get_size()` capture normalization (macOS rt-vs-image disagreement) and load-time `OS.get_cmdline_user_args` reads. Fixed: `sample()` was BRE while counts were ERE, so parenthesized patterns silently printed no samples (sample is now `-E`, patterns normalized). Scan scope excludes `archive/` snapshot dirs. Counts-vs-samples agreement is now verifiable by eye on every run.
 

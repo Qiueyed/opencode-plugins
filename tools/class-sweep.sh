@@ -104,6 +104,24 @@ if bad:
     print("FAIL counter drift: " + "; ".join(bad)); sys.exit(1)
 print(f"ok   counters: doc {sdoc} pass {spass} match WORKLOG")
 PY
+  # archive guard: snapshot scripts carry class_name duplicates - without .gdignore the editor registers them as second global classes and every referencing script parse-errors ("hides a global script class")
+  if [ -d archive ] && [ ! -f archive/.gdignore ]; then
+    fails=$((fails+1)); say "FAIL archive/ has no .gdignore (editor class-collision risk: snapshot class_name copies get scanned)"
+  else
+    say "ok   archive guard: .gdignore present"
+  fi
+  # stale class registrations: ANY engine cache referencing archive/ re-parses snapshot copies on editor start even with .gdignore present - the scan honors .gdignore but DIRECT file loads (restore buffers, layout, recent files) bypass it (2026-09-30 Fleet incident, doc 521/522/523)
+  if [ -d .godot ]; then
+    STALE=$(grep -rIl "res://archive/" .godot/ 2>/dev/null)
+    if [ -n "$STALE" ]; then
+      fails=$((fails+1)); say "FAIL stale archive references in engine caches (quit the editor, purge the listed files, reopen):"
+      printf '%s\n' "$STALE" | sed 's/^/     /'
+    else
+      say "ok   archive references: all engine caches clean"
+    fi
+  else
+    say "note no .godot/ yet (first import will create it)"
+  fi
   # pairing note: if the project ships its own deeper probe, remind about it
   grep -q "consistency-probe" AGENTS.md 2>/dev/null && say "note project has its own consistency-probe - run it for registry/JSON parity"
   echo "---"
