@@ -16,19 +16,73 @@ if pgrep -f "MacOS/Godot" >/dev/null 2>&1; then
 fi
 
 n=0
-for f in .godot/editor/project_metadata.cfg .godot/editor/editor_layout.cfg .godot/editor/script_editor_cache.cfg; do
+for f in .godot/editor/project_metadata.cfg .godot/editor/editor_layout.cfg; do
   [ -f "$f" ] || continue
   before=$(grep -c "res://archive/" "$f" 2>/dev/null || true)
   [ "${before:-0}" -eq 0 ] && continue
+  # element-level purge: array-valued lines (e.g. open_scripts=PackedStringArray(...)) hold MANY
+  # paths on ONE physical line - dropping the line kills every key, so strip only the archive
+  # ELEMENTS and keep the key alive (2026-09-30: a line-filter wiped open_scripts whole, doc 523)
+  python3 - "$f" <<'PY'
+import re, sys
+p = sys.argv[1]
+lines = open(p).read().split("\n")
+out = []
+for l in lines:
+    if "res://archive/" in l and re.search(r"PackedStringArray\(|^\s*\"res://", l):
+        l2 = re.sub(r'(\s*)"res://archive/[^"]*",?', r"\1", l)
+        l2 = re.sub(r"PackedStringArray\(\s*\)", "PackedStringArray()", l2)
+        out.append(l2)
+    elif "res://archive/" not in l:
+        out.append(l)
+open(p, "w").write("\n".join(out))
+PY
+  echo "purged archive element(s) from $f"
+  n=$((n+1))
+done
+# script_editor_cache.cfg is SECTION-per-tab: drop archive sections whole (header + body)
+f=".godot/editor/script_editor_cache.cfg"
+if [ -f "$f" ] && grep -q "res://archive/" "$f"; then
   python3 - "$f" <<'PY'
 import sys
 p = sys.argv[1]
 lines = open(p).read().split("\n")
-open(p, "w").write("\n".join(l for l in lines if "res://archive/" not in l))
+out, skip = [], False
+for l in lines:
+    if l.startswith("[res://archive/"):
+        skip = True
+        continue
+    if skip and l.startswith("[res://"):
+        skip = False
+    if not skip:
+        out.append(l)
+open(p, "w").write("\n".join(out))
 PY
-  echo "purged $before archive line(s) from $f"
+  echo "purged archive section(s) from $f"
   n=$((n+1))
-done
+fi
+# restore ScriptEditor/open_scripts from the tab cache when it came out empty (the layout's
+# tab list and the cache are two views of the same 53-tab truth; the cache is the richer one)
+if [ -f .godot/editor/editor_layout.cfg ] && [ -f .godot/editor/script_editor_cache.cfg ]; then
+  EMPTY=$(grep -c "^open_scripts=\[\]" .godot/editor/editor_layout.cfg || true)
+  TABS=$(grep -c "^\[res://" .godot/editor/script_editor_cache.cfg || true)
+  if [ "${EMPTY:-0}" -gt 0 ] && [ "${TABS:-0}" -gt 0 ]; then
+    python3 - <<'PY'
+import re
+tabs = re.findall(r"^\[(res://[^\]]+)\]$", open(".godot/editor/script_editor_cache.cfg").read(), re.M)
+arr = "PackedStringArray(" + ", ".join('"%s"' % t for t in tabs) + ")"
+p = ".godot/editor/editor_layout.cfg"
+text = open(p).read()
+if "open_scripts=" in text:
+    text = re.sub(r"^open_scripts=.*$", "open_scripts=" + arr, text, count=1, flags=re.M)
+else:
+    text = text.replace("[ScriptEditor]", "[ScriptEditor]\nopen_scripts=" + arr, 1)
+open(p, "w").write(text)
+print("open_scripts rebuilt:", len(tabs), "tabs")
+PY
+    n=$((n+1))
+  fi
+fi
 
 # any other text cache under .godot referencing archive: list it (binary caches skipped)
 LEFT=$(grep -rIl "res://archive/" .godot/ 2>/dev/null)

@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-09-30 (later still) ii
+- **purge element-level + export guard**: the line-filter purge wiped whole PackedStringArray keys (open_scripts held many paths on one physical line, doc 523); the purge now strips only archive ELEMENTS and rebuilds keys (53 tabs restored live). class-sweep --project gains the export guard: empty exclude_filter presets would pack archive snapshots into the PCK - class_name collisions one export away from players.
+
 ## 2026-09-30 (later still)
 - **godot-cache-purge + archive guard**: moving snapshot scripts into archive/ triggered the editor class-collision cascade - .gdignore covers the scan but editor CACHES re-parse archive paths via direct loads on every start ("hides a global script class"). New tools/godot-cache-purge.sh (strips res://archive/ from metadata/layout/script-editor caches, rebuilds the class cache headlessly, editor-closed guards); class-sweep --project now FAILs on missing archive/.gdignore and stale cache references. Playbook lesson: .gdignore is not enough.
 

@@ -122,6 +122,17 @@ PY
   else
     say "note no .godot/ yet (first import will create it)"
   fi
+  # export guard: empty filters make Godot pack EVERYTHING visible - archive/ snapshot scripts
+  # would ship in the PCK and their class_names would collide inside the built game (2026-09-30
+  # editor incident, doc 521-524: the same class_name duplicates, one export away from players)
+  if [ -f export_presets.cfg ]; then
+    BAD=$(grep -c 'exclude_filter=""' export_presets.cfg || true)
+    if [ "${BAD:-0}" -gt 0 ]; then
+      fails=$((fails+1)); say "FAIL export presets: $BAD preset(s) with empty exclude_filter (archive/* snapshots would ship)"
+    else
+      say "ok   export guard: all presets exclude archive/*"
+    fi
+  fi
   # pairing note: if the project ships its own deeper probe, remind about it
   grep -q "consistency-probe" AGENTS.md 2>/dev/null && say "note project has its own consistency-probe - run it for registry/JSON parity"
   echo "---"
