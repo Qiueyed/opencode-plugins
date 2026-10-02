@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-10-01
+- **class-sweep --project: userscript checks + project-gate delegation**: projects containing `*.user.js` files get syntax, metadata (single @version) and smart-quote corruption checks; a project's own `tools/class-sweep.sh` is executed and its exit code folds into the sweep (delegation convention). Counter-drift check made convention-optional (skips instead of failing projects without the counters ledger). **Scope warning documented everywhere it belongs**: the userscript checks are structural - a real incident (a toggle whose CSS existed but was never registered, so the feature silently never ran) passes every structural check and is only catchable by executing the shipped bytes against a stubbed environment; the sweep now says so in its header, its pass output, and the README.
+
 ## 2026-09-30 (later still) iii
 - **tools/untrack-pycache.sh**: removes tracked __pycache__/*.pyc from a repo index (files stay on disk; refuses repos without the .gitignore rule so the litter cannot return), --all sweeps every repo under ~/Documents/github + Godot. Shipped after 2 stray .pyc files were found riding an earlier git add -A onto GitHub.
 

@@ -5,8 +5,17 @@
 #   class-sweep.sh                      opencode config + plugins repo (default)
 #   class-sweep.sh --project <dir>      universal checks for any managed project:
 #                                       .bak clutter, contracts.json validation,
-#                                       doc-reference staleness (Godot scene-
-#                                       manifest + save-version patterns)
+#                                       counter drift (opt-in ledger), scene
+#                                       integrity, userscript checks (*.user.js:
+#                                       syntax, metadata, quote corruption) +
+#                                       delegation to the project's own
+#                                       tools/class-sweep.sh if it ships one.
+#
+#   SCOPE: all checks are STRUCTURAL. A script can pass every check and still
+#   ship a dead feature (real case: CSS + wiring existed but the toggle was
+#   never registered - found only by executing the shipped bytes against a
+#   stubbed browser). For behavioral coverage, pair the sweep with a runtime
+#   probe battery: stub the environment, run the file, assert outcomes.
 set -u
 
 # ---------- project mode (universal checks, contracts.json-driven) ----------
@@ -83,7 +92,9 @@ if not (os.path.exists("STATUS.md") and os.path.exists("WORKLOG.md")):
 st = open("STATUS.md", encoding="utf-8", errors="replace").read()
 m = re.search(r"counters: doc (\d+), pass (\d+)", st)
 if not m:
-    print("FAIL counter drift: STATUS.md has no 'counters: doc N, pass M' line"); sys.exit(1)
+    # convention-optional: the counters line is an opt-in ledger; projects
+    # without it have nothing to drift
+    print("skip counter drift (no counters line in STATUS.md)"); sys.exit(0)
 sdoc, spass = int(m.group(1)), int(m.group(2))
 wdoc = wpass = 0
 for line in open("WORKLOG.md", encoding="utf-8", errors="replace"):
@@ -131,6 +142,46 @@ PY
       fails=$((fails+1)); say "FAIL export presets: $BAD preset(s) with empty exclude_filter (archive/* snapshots would ship)"
     else
       say "ok   export guard: all presets exclude archive/*"
+    fi
+  fi
+  # userscript projects: *.user.js files get browser-userscript class checks.
+  # Quote corruption is a browser-userscript class of its own: macOS text
+  # injection silently replaces ASCII quotes and breaks string literals.
+  US_FILES=$(find . -maxdepth 2 -name "*.user.js" -not -path "./.git/*" 2>/dev/null)
+  if [ -n "$US_FILES" ]; then
+    FAIL_U=0
+    for u in $US_FILES; do
+      if node --check "$u" >/dev/null 2>&1; then
+        say "ok   userscript syntax: $(basename "$u")"
+      else
+        fails=$((fails+1)); FAIL_U=1; say "FAIL userscript syntax: $u"
+      fi
+      VC=$(grep -c '^// @version' "$u" || true)
+      if [ "${VC:-0}" -eq 1 ]; then
+        say "ok   userscript metadata: one @version ($(basename "$u"))"
+      else
+        fails=$((fails+1)); FAIL_U=1; say "FAIL userscript metadata: @version count ${VC:-0} in $u"
+      fi
+    done
+    QHITS=$(find . -maxdepth 2 \( -name "*.user.js" -o -name "*.md" \) -not -path "./.git/*" -exec perl -ne 'print "hit\n" if /\xe2\x80[\x98\x99\x9c\x9d\x94]/' {} + 2>/dev/null | wc -l | tr -d ' ')
+    if [ "${QHITS:-0}" -eq 0 ]; then
+      say "ok   smart quotes/em dashes: none"
+    else
+      fails=$((fails+1)); say "FAIL smart quotes/em dashes: $QHITS line(s)"
+    fi
+    if [ "$FAIL_U" -eq 0 ]; then
+      say "ok   userscript checks"
+      say "note userscript checks are STRUCTURAL (syntax/metadata/quotes). Behavioral coverage - does each feature actually run? - needs a runtime probe battery: stub the environment, execute the shipped bytes, assert outcomes."
+    fi
+  fi
+  # delegation convention: projects shipping their own tools/class-sweep.sh
+  # own their deeper contracts; its exit code folds into this sweep so one
+  # command covers universal + project-specific checks
+  if [ -x tools/class-sweep.sh ]; then
+    if ./tools/class-sweep.sh; then
+      say "ok   project gate: tools/class-sweep.sh ALL CLEAN"
+    else
+      fails=$((fails+1)); say "FAIL project gate: tools/class-sweep.sh reported failures"
     fi
   fi
   # pairing note: if the project ships its own deeper probe, remind about it
