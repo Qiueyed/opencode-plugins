@@ -48,6 +48,7 @@
 ## OFFLOAD PRINCIPLE (user directive)
 - The AI builds and fixes; the MACHINERY verifies. Never assign a mechanical check to the model when a gate can run it: gate.ts (session.idle) owns shellcheck/tsc/class-sweep triggers, the janitor owns close-time maintenance, run-all.mjs owns the fuzz suite.
 - The playbook\x27s manual sweep instructions are FALLBACKS (debugging feedback, or when a gate is missing) - not the AI\x27s standing duty.
+- Python syntax checks: use `python3 -c "import ast; ast.parse(open(f).read())"` - py_compile WRITE bytecode (__pycache__ litter in every scanned tree); ast.parse proves the same thing with zero side effects.
 ## Automation (run this, do not re-derive by hand)
 - `tools/class-sweep.sh` encodes every static sweep: bare require in ESM, stale root paths (all spellings), version-pinned chunk paths, non-atomic asar writes, per-patcher syntax/parse-back gates, registry validity. Exit 1 on any hit; run after ANY multi-file edit or migration; also in the repo at tools/class-sweep.sh.
 - Hostile-value batteries live in `tests/fuzz/` (runner.mjs): source-slice eval with shadowed Date for pure logic (notify window math: 23 cases incl midnight-crossing, wrap-around weeks, year boundaries, NaN hours) + subprocess batteries with overridden HOME for click-executed CLIs (16 cases). Pattern: bounded corpora, isolated env, assert no-throw + bounded time + sandbox isolation. Add a battery when touching pure-logic code with no coverage.
