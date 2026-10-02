@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-09-30 (later still) iii
+- **tools/untrack-pycache.sh**: removes tracked __pycache__/*.pyc from a repo index (files stay on disk; refuses repos without the .gitignore rule so the litter cannot return), --all sweeps every repo under ~/Documents/github + Godot. Shipped after 2 stray .pyc files were found riding an earlier git add -A onto GitHub.
+
 ## 2026-09-30 (later still) ii
 - **purge element-level + export guard**: the line-filter purge wiped whole PackedStringArray keys (open_scripts held many paths on one physical line, doc 523); the purge now strips only archive ELEMENTS and rebuilds keys (53 tabs restored live). class-sweep --project gains the export guard: empty exclude_filter presets would pack archive snapshots into the PCK - class_name collisions one export away from players.
 
