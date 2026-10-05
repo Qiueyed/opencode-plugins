@@ -32,7 +32,10 @@ app_running() {
   # pgrep -f proved unreliable here (slash patterns miss; without -l it prints
   # only PIDs). Match the main binary line in ps output instead; the $ anchor
   # ensures only the main binary counts (helper paths end with args).
-  /bin/ps ax -o command= 2>/dev/null | /usr/bin/grep -q "OpenCode.app/Contents/MacOS/OpenCode$"
+  # NO grep -q: it exits at the first match, ps dies of SIGPIPE, and with
+  # pipefail the pipeline reads 141 ("not running") - a race, proven live
+  # 2026-10-05. Plain grep reads all input; both exits are then meaningful.
+  /bin/ps ax -o command= 2>/dev/null | /usr/bin/grep "OpenCode.app/Contents/MacOS/OpenCode$" >/dev/null
 }
 
 require_quit() {
@@ -98,7 +101,7 @@ cmd_apply() {
 
   log "apply: staging update..."
   /usr/bin/unzip -q "$ZIP" -d "$STAGE"
-  [[ -d "$STAGE/OpenCode.app" ]] || { APP_MISSING=1; die "staged bundle missing OpenCode.app"; }
+  [[ -d "$STAGE/OpenCode.app" ]] || { die "staged bundle missing OpenCode.app"; }
   local staged_ver
   staged_ver="$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$STAGE/OpenCode.app/Contents/Info.plist" 2>/dev/null || print "?")"
   [[ "$staged_ver" == "$EXPECTED_VERSION" ]] || die "staged bundle version '$staged_ver' != $EXPECTED_VERSION"

@@ -220,7 +220,9 @@ Desktop-app update/patch tooling (pair with [desktop-patch/](desktop-patch/)):
 - **[tools/oc-update-118](tools/oc-update-118)** - manual desktop-app updater for when the in-app "Restart now" silently fails on a patched bundle: `checkzip` (sha512 + bundled version against update-info.json), `apply` (staged swap, old bundle preserved via rename for instant rollback, refuses while any OpenCode process is alive), `rollback`, `verify` (post-update battery: versions, DB migrations, plugin errors in the log). Never quits or kills the app itself.
 - **[tools/oc-post-update](tools/oc-post-update)** - runs all four desktop patchers fail-fast in one command after an app update; stops at the first anchor drift so a bad port never ships half-applied.
 - **[tools/oc-clear-cache](tools/oc-clear-cache)** - wipes the app's regenerable renderer caches (Cache/Code Cache/GPUCache/DawnCache) for a fresh-asset launch; refuses to run while the app is up.
-- **[tools/badge-toggle](tools/badge-toggle)** - flip a model-row badge family (`ctx|img|cost`) in one call: writes `state.json` (the Plugins-menu checkbox backend) and re-runs the oc-ui badge patch.
+- **[tools/badge-toggle](tools/badge-toggle)** - flip a model-row badge family (`ctx|img|cost`) in one call: writes `state.json` (the Plugins-menu checkbox backend) and re-runs the oc-ui badge patch. Runs under plain `/bin/sh` semantics (menu-safe), parses state output case-insensitively, invokes the zsh oc-ui explicitly.
+- **[tools/verify-integrity.mjs](tools/verify-integrity.mjs)** - post-patch integrity check for the app bundle (asar hash vs Info.plist, signature); takes an optional app-bundle path.
+- **[tools/oc-asar-read.mjs](tools/oc-asar-read.mjs)** - minimal read-only asar inspector (list by filter, extract one entry) for anchor re-derivation without a full extract.
 ## gate
 
 [gate.ts](gate.ts) is the offload hub: everything mechanical runs here so the

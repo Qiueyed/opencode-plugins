@@ -4,13 +4,16 @@
 # Deletes ONLY regenerable cache dirs - nothing else is touched.
 set -euo pipefail
 D="$HOME/Library/Application Support/ai.opencode.desktop"
-if pgrep -f "OpenCode.app/Contents/MacOS/OpenCode$" >/dev/null 2>&1; then
+# NO grep -q here: it exits at first match, ps dies of SIGPIPE, and pipefail
+# turns that into "not running" (race, proven live 2026-10-05). Plain grep
+# consumes all input; redirect instead.
+if ps ax -o command= 2>/dev/null | grep "OpenCode.app/Contents/MacOS/OpenCod[e]" >/dev/null; then
   echo "OpenCode is still RUNNING. Quit it first (Cmd+Q), then re-run this."
   exit 1
 fi
 for sub in "Cache" "Code Cache" "GPUCache" "DawnCache"; do
   if [ -d "$D/$sub" ]; then
-    /bin/rm -rf "$D/$sub"
+    /bin/rm -rf "${D:?}/$sub"
     echo "removed: $D/$sub"
   fi
 done

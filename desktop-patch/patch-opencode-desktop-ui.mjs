@@ -89,7 +89,9 @@ function readUiConfig() {
   try {
     const j = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
     for (const k of Object.keys(cfg)) if (typeof j[k] === typeof cfg[k]) cfg[k] = j[k];
-  } catch {}
+  } catch (e) {
+    console.error(`  note: ${CONFIG_FILE} unreadable (${e.message}) - using built-in defaults`);
+  }
   const argv = process.argv.slice(2);
   const num = (flag) => {
     const i = argv.indexOf(flag);

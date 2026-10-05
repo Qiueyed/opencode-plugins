@@ -6,11 +6,16 @@ set -euo pipefail
 FAMILY="${1:?usage: badge-toggle <ctx|img|cost>}"
 case "$FAMILY" in ctx|img|cost) ;; *) echo "unknown badge family: $FAMILY" >&2; exit 2 ;; esac
 D="$HOME/.config/opencode"
-KEY="ocBadge${FAMILY^}"
+case "$FAMILY" in
+  ctx)  KEY="ocBadgeCtx"  ;;
+  img)  KEY="ocBadgeImg"  ;;
+  cost) KEY="ocBadgeCost" ;;
+esac
 raw="$(sh "$D/tools/state-toggle" "$KEY")"
-case "$raw" in
+# state-toggle prints Python-style True/False; match case-insensitively
+case "$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')" in
   *true*)  v="on"  ;;
   *false*) v="off" ;;
   *) echo "could not parse state-toggle output: $raw" >&2; exit 1 ;;
 esac
-exec sh "$D/patches/oc-ui" badge "$FAMILY" "$v"
+exec zsh "$D/patches/oc-ui" badge "$FAMILY" "$v"
