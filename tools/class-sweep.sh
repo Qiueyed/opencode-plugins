@@ -4,12 +4,16 @@
 #
 #   class-sweep.sh                      opencode config + plugins repo (default)
 #   class-sweep.sh --project <dir>      universal checks for any managed project:
-#                                       .bak clutter, contracts.json validation,
-#                                       counter drift (opt-in ledger), scene
-#                                       integrity, userscript checks (*.user.js:
-#                                       syntax, metadata, quote corruption) +
-#                                       delegation to the project's own
-#                                       tools/class-sweep.sh if it ships one.
+#                                       .bak clutter, contracts.json validation
+#                                       (mustExist/docs refs, mustContain pattern
+#                                       contracts, installedTwin drift), counter
+#                                       drift (opt-in ledger), scene integrity,
+#                                       userscript checks (*.user.js: syntax,
+#                                       metadata, canary-proven quote scan,
+#                                       marker traps, duplicate top-level var,
+#                                       version sync vs WORKLOG) + delegation
+#                                       to the project's own tools/class-sweep.sh
+#                                       if it ships one.
 #
 #   SCOPE: all checks are STRUCTURAL. A script can pass every check and still
 #   ship a dead feature (real case: CSS + wiring existed but the toggle was
@@ -28,8 +32,12 @@ if [ "${1:-}" = "--project" ]; then
   # validates the declaration against reality.
   if [ -f contracts.json ]; then
     python3 - <<'PY' || fails=$((fails+1))
-import json, os, sys
-c = json.load(open("contracts.json"))
+import filecmp, json, os, re, sys
+try:
+    c = json.load(open("contracts.json"))
+except Exception as e:
+    print("FAIL contracts.json unparseable:", e); sys.exit(1)
+bad = 0
 missing = [p for p in c.get("mustExist", []) if not os.path.exists(p)]
 for doc in c.get("docs", []):
     f = doc.get("file", "")
@@ -37,11 +45,59 @@ for doc in c.get("docs", []):
         if not os.path.exists(ref):
             missing.append(f"{f} -> {ref}")
 if missing:
+    bad += 1
     print("FAIL contract violations:")
     for m in missing:
         print("     ", m)
+else:
+    print(f"ok   contracts: {len(c.get('mustExist', []))} paths + doc refs validated")
+# mustContain: a project's specific invariants live as DATA here; the sweep
+# tool itself stays generic. Fixed-string by default (line-count semantics like
+# grep -Fc); {"regex": true} switches to a Python regex - use \\b for
+# rename-sensitive identifiers ("function foo\\b" must not match "function foo2").
+# {"count": N} demands exactly N lines; {"min": N} (default 1) demands at least N.
+mcbad = 0
+mc = c.get("mustContain", [])
+for e in mc:
+    f, pat = e.get("file", ""), e.get("pattern")
+    if not f or pat is None or not os.path.isfile(f):
+        mcbad += 1; print(f"FAIL mustContain contract malformed or file missing: {e}"); continue
+    try:
+        if e.get("regex"):
+            rx = re.compile(pat)
+            n = sum(1 for line in open(f, encoding="utf-8", errors="replace") if rx.search(line))
+        else:
+            n = sum(1 for line in open(f, encoding="utf-8", errors="replace") if pat in line)
+    except re.error as ex:
+        mcbad += 1; print(f"FAIL mustContain contract bad regex {pat!r}: {ex}"); continue
+    want = e.get("count")
+    if want is not None:
+        ok, exp = (n == want), f"exactly {want}"
+    else:
+        mn = e.get("min", 1); ok, exp = (n >= mn), f">= {mn}"
+    if not ok:
+        mcbad += 1; print(f"FAIL mustContain: {f} pattern {pat[:40]!r} count={n} (expected {exp})")
+if mc:
+    if mcbad == 0:
+        print(f"ok   mustContain: {len(mc)} pattern contracts validated")
+    bad += mcbad
+# installedTwin: the installed userscript copy must match the project copy
+# (drift class - edits shipped to disk but not redeployed to the manager)
+twin_name = c.get("installedTwin")
+if twin_name:
+    twin = os.path.expanduser(
+        "~/Library/Containers/com.userscripts.macos.Userscripts-Extension/"
+        "Data/Documents/scripts/" + twin_name)
+    if not os.path.isfile(twin_name):
+        bad += 1; print(f"FAIL twin: contract names {twin_name} but it is not in the project")
+    elif not os.path.isfile(twin):
+        print(f"note installed copy not present yet - twin check skipped ({twin_name})")
+    elif filecmp.cmp(twin_name, twin, shallow=False):
+        print("ok   twin: installed copy identical to project copy")
+    else:
+        bad += 1; print("FAIL twin drift: installed copy differs from project copy (redeploy)")
+if bad:
     sys.exit(1)
-print(f"ok   contracts: {len(c.get('mustExist', []))} paths + doc refs validated")
 PY
   else
     say "note no contracts.json (declare one: {\"mustExist\": [...], \"docs\": [...]})"
@@ -162,12 +218,59 @@ PY
       else
         fails=$((fails+1)); FAIL_U=1; say "FAIL userscript metadata: @version count ${VC:-0} in $u"
       fi
+      MAC=$(grep -c '^// @match' "$u" || true)
+      if [ "${MAC:-0}" -ge 1 ]; then
+        say "ok   userscript @match: ${MAC:-0} ($(basename "$u"))"
+      else
+        fails=$((fails+1)); FAIL_U=1; say "FAIL userscript @match: none in $(basename "$u")"
+      fi
+      MC=$(grep -cE 'TODO|FIXME|XXX|HACK' "$u" || true)
+      if [ "${MC:-0}" -eq 0 ]; then
+        say "ok   userscript markers: none ($(basename "$u"))"
+      else
+        fails=$((fails+1)); FAIL_U=1; say "FAIL userscript markers: ${MC:-0} line(s) in $(basename "$u")"
+      fi
+      # duplicate top-level var is LEGAL JS (node --check passes) and a
+      # silent-wipe class: `var logBuf` twice = the first buffer vanishes
+      DUPV=$(grep -oE '^var [A-Za-z_$][A-Za-z0-9_$]*' "$u" 2>/dev/null | awk '{print $2}' | sort | uniq -d)
+      if [ -z "$DUPV" ]; then
+        say "ok   userscript top-level vars: no duplicates ($(basename "$u"))"
+      else
+        fails=$((fails+1)); FAIL_U=1; say "FAIL duplicate top-level var (legal JS, silent-wipe class): $(printf '%s ' $DUPV)"
+      fi
     done
+    # canary proof: the quote detector must catch a known-bad file before we
+    # trust a clean result on the real files (verification-theater guard)
+    TMPQ="$(mktemp -d)"
+    trap 'rm -rf "$TMPQ"' EXIT
+    printf 'var bad = \xe2\x80\x9ccurly\xe2\x80\x9d + \xe2\x80\x98oops\xe2\x80\x99 + \xe2\x80\x94dash;\n' > "$TMPQ/canary.js"
+    CANARY=$(perl -ne 'print "hit\n" if /\xe2\x80[\x98\x99\x9c\x9d\x94]/' "$TMPQ/canary.js" | wc -l | tr -d ' ')
+    if [ "${CANARY:-0}" -ge 1 ]; then
+      say "ok   quote-scanner canary: detector catches known-bad"
+    else
+      fails=$((fails+1)); say "FAIL quote-scanner canary: detector found nothing in a known-bad file (results untrustworthy)"
+    fi
     QHITS=$(find . -maxdepth 2 \( -name "*.user.js" -o -name "*.md" \) -not -path "./.git/*" -exec perl -ne 'print "hit\n" if /\xe2\x80[\x98\x99\x9c\x9d\x94]/' {} + 2>/dev/null | wc -l | tr -d ' ')
     if [ "${QHITS:-0}" -eq 0 ]; then
       say "ok   smart quotes/em dashes: none"
     else
       fails=$((fails+1)); say "FAIL smart quotes/em dashes: $QHITS line(s)"
+    fi
+    # version sync: @version vs the newest WORKLOG entry. Note-skip when the
+    # newest entry carries no version (tooling entries bump nothing) - forcing
+    # a bump here would push the installed twin out of sync for no code change.
+    if [ -f WORKLOG.md ]; then
+      for u in $US_FILES; do
+        FILE_V=$(grep -m1 '^// @version' "$u" 2>/dev/null | grep -oE '[0-9][0-9.]*' || true)
+        LOG_V=$(grep -E '^## [0-9]{4}-[0-9]{2}-[0-9]{2}' WORKLOG.md 2>/dev/null | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+        if [ -z "$LOG_V" ]; then
+          say "note version sync skipped: newest WORKLOG entry has no version ($(basename "$u"))"
+        elif [ -n "$FILE_V" ] && [ "$FILE_V" = "${LOG_V#v}" ]; then
+          say "ok   version sync: $FILE_V ($(basename "$u"))"
+        else
+          fails=$((fails+1)); FAIL_U=1; say "FAIL version drift: file=$FILE_V worklog=${LOG_V:-none} ($(basename "$u"))"
+        fi
+      done
     fi
     if [ "$FAIL_U" -eq 0 ]; then
       say "ok   userscript checks"
