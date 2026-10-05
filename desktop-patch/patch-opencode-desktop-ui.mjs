@@ -82,6 +82,7 @@ function readUiConfig() {
   const cfg = {
     popoverWidthRem: 24, // stock: 18rem (288px)
     popoverHeightRem: 32, // stock: 20rem (320px)
+    menuWidthRem: 40, // v4.6 live model dropdown width; 0 = stock 284px (no override)
     badgeContext: true,
     badgeImage: true,
     badgeCost: true,
@@ -108,7 +109,7 @@ function readUiConfig() {
   if (w) cfg.popoverWidthRem = w;
   if (h) cfg.popoverHeightRem = h;
   const mw = num("--menu-w");
-  if (mw) cfg.menuWidthRem = mw;
+  if (mw !== null) cfg.menuWidthRem = mw; // 0 = stock is a legal explicit value
   const bc = bool("--badge-ctx");
   const bi = bool("--badge-img");
   const bco = bool("--badge-cost");
@@ -121,8 +122,9 @@ const CFG = readUiConfig();
 const POPOVER_WIDTH_REM = CFG.popoverWidthRem;
 const POPOVER_HEIGHT_REM = CFG.popoverHeightRem;
 // v4.6: the LIVE model dropdown width (the old popover WxH presets target a
-// dead container - see WORKLOG 2026-10-05). Config-driven, default 40rem.
-const MENU_WIDTH_REM = CFG.menuWidthRem || 40;
+// dead container - see WORKLOG 2026-10-05). Config-driven; 0 = STOCK (no
+// width/max-height override at all - the true 284px original). Unset = 40.
+const MENU_WIDTH_REM = CFG.menuWidthRem === undefined ? 40 : CFG.menuWidthRem;
 
 // Session-size tag colors (see patchTitleJs). Tweak and re-run.
 const SIZE_RED_MB = 300; // tag text turns red at/above this many MB
@@ -211,13 +213,13 @@ function cssBlock() {
    (data-component=menu-v2-content), class injected at its creation site.
    44rem wide; the inner row scroller caps itself at max-h-[220px], raised
    here. (Canary tints removed 2026-10-05 after identification.) */
-.oc-model-menu {
+${MENU_WIDTH_REM ? `.oc-model-menu {
   width: ${MENU_WIDTH_REM}rem !important;
   max-height: min(70vh, 50rem) !important;
 }
 .oc-model-menu [class*="max-h-[220px]"] {
   max-height: min(60vh, 42rem) !important;
-}
+}` : "/* oc-model-menu: stock width - no override (user picked the original 284px) */"}
 
 ${CSS_MARKER_END}`;
 }

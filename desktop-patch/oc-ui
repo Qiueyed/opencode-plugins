@@ -94,11 +94,11 @@ case "$cmd" in
     echo "config file: $CFG"
     echo "  popoverWidthRem:  $(cfg_field popoverWidthRem)"
     echo "  popoverHeightRem: $(cfg_field popoverHeightRem)"
-    echo "  menuWidthRem:     $(cfg_field menuWidthRem)  (live model dropdown; legacy popover WxH targets a dead container on 1.18.34)"
+    echo "  menuWidthRem:     $(cfg_field menuWidthRem)  (live model dropdown; 0 = stock 284px, no override)"
     echo "  badgeContext:     $(cfg_field badgeContext)"
     echo "  badgeImage:       $(cfg_field badgeImage)"
     echo "  badgeCost:        $(cfg_field badgeCost)"
-    echo "menuwidth presets: s=32  m=40 (default)  l=48"
+    echo "menuwidth presets: stock=284px original  s=32  m=40  l=48"
     ;;
   width)    num_or_die width "${2:-}";    set_field popoverWidthRem "$2";  apply "popover width ${2}rem" ;;
   height)   num_or_die height "${2:-}";   set_field popoverHeightRem "$2"; apply "popover height ${2}rem" ;;
@@ -114,12 +114,15 @@ case "$cmd" in
     apply "preset $2 ($(cfg_field popoverWidthRem)x$(cfg_field popoverHeightRem))rem"
     ;;
   menuwidth) # v4.6 live knob: .oc-model-menu width + radio-group value file
-    num_or_die menuwidth "${2:-}"
-    set_field menuWidthRem "$2"
+    case "${2:-}" in
+      stock|original) MW=0 ;;
+      *) MW="${2:-}"; num_or_die menuwidth "$MW" ;;
+    esac
+    set_field menuWidthRem "$MW"
     VF="$HOME/.config/opencode/state/ui-menuwidth.txt"
     mkdir -p "$HOME/.config/opencode/state"
-    printf '%s' "$2" > "$VF"
-    apply "model menu width ${2}rem" ;;
+    printf '%s' "$MW" > "$VF"
+    apply "model menu width ($([ "$MW" = 0 ] && print stock || print "${MW}rem"))" ;;
   badge)
     case "${2:-}" in
       ctx)  key=badgeContext ;;
