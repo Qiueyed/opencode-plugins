@@ -222,7 +222,9 @@ export const Notify: Plugin = async ({ client, project, directory }) => {
     }
     execFile("/usr/bin/pgrep", ["-qf", "OpenCode.app"], (err) => {
       if (!err) run('tell application id "ai.opencode.desktop" to ' + base)
-      else run(base)
+      // App not running (mid-quit race): bare osascript attributes the banner
+      // to Script Editor - worse than no banner, and the event it announced
+      // is moot the moment the app is gone. Skip instead (2026-10-05).
     })
   }
 
