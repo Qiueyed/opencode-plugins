@@ -44,7 +44,7 @@
 //   - repacks the asar, backs up the pristine original once
 //     (app.asar.original.bak), computes the new asar header SHA256 and writes
 //     it into Info.plist ElectronAsarIntegrity (integrity stays ENABLED)
-//   - ad-hoc re-signs the app bundle (codesign -s -) and verifies it
+//   - re-signs the app bundle with the stable "OpenCode Local Notifier" identity
 //
 // Re-run after every app auto-update (updates replace the whole bundle).
 // Revert with: node patch-opencode-desktop-ui.mjs --revert

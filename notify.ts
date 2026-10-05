@@ -39,9 +39,10 @@
  * Toggle: the peakBannerDisabled key in state/state.json is checked per poll,
  * so the banner can be disabled live; wire it to a menu checkbox.
  *
- * Delivery: osascript, but TARGETED at the OpenCode bundle when it runs so
- * banners show OpenCode's name/icon instead of "Script Editor"; targeting a
- * closed app would auto-launch it, hence the guard + plain fallback. Focus /
+ * Delivery: sound only via afplay. Banners are dead for scripts on this
+ * macOS - every osascript banner shows as "Script Editor" (tell-target
+ * included, A/B-proven 2026-10-05) - so alerts are audio-only and banners
+ * are left to the app's native notifications. Focus /
  * Do-Not-Disturb suppress banners. Polls every PEAK_CHECK_MS; the UTC date
  * string keys the window (it never crosses a UTC day boundary, so one
  * notification per occurrence). The window is also checked once at startup,
@@ -198,34 +199,22 @@ const hidIdleSeconds = (): Promise<number | null> =>
     }
   })
 
-export const Notify: Plugin = async ({ client, project, directory }) => {
+export const Notify: Plugin = async ({ client, directory }) => {
   if (process.platform !== "darwin") return {}
 
-  const scope =
-    (project?.worktree || directory || "opencode").split("/").filter(Boolean).pop() || "opencode"
-
-  // Targeted delivery: attribute banners to OpenCode (name/icon) instead of
-  // "Script Editor" - but ONLY while the desktop app is running, because
-  // AppleScript-targeting a closed app LAUNCHES it. Plain osascript fallback
-  // otherwise. The desktop app runs this plugin itself, but the CLI does not.
-  const notify = (subtitle: string, message: string, sound: string) => {
-    const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
-    const base =
-      'display notification "' + esc(message) + '" with title "opencode: ' + esc(scope) +
-      '" subtitle "' + esc(subtitle) + '" sound name "' + sound + '"'
-    const run = (script: string) => {
-      try {
-        const child = spawn("osascript", ["-e", script], { stdio: "ignore" })
-        child.unref()
-        child.on("error", () => {})
-      } catch {}
-    }
-    execFile("/usr/bin/pgrep", ["-qf", "OpenCode.app"], (err) => {
-      if (!err) run('tell application id "ai.opencode.desktop" to ' + base)
-      // App not running (mid-quit race): bare osascript attributes the banner
-      // to Script Editor - worse than no banner, and the event it announced
-      // is moot the moment the app is gone. Skip instead (2026-10-05).
-    })
+  // Banner delivery is DEAD on this macOS: every osascript banner attributes
+  // to Script Editor, tell-target included (A/B-proven 2026-10-05 - targeted
+  // and bare both showed Script Editor, exit 0). Scripts cannot carry the
+  // OpenCode identity; only the app's native notifications can. So: play the
+  // alert sound via afplay (identity-free) and post no banner at all.
+  const notify = (_subtitle: string, _message: string, sound: string) => {
+    try {
+      const child = spawn("/usr/bin/afplay", [`/System/Library/Sounds/${sound}.aiff`], {
+        stdio: "ignore",
+      })
+      child.unref()
+      child.on("error", () => {})
+    } catch {}
   }
 
   const lastPeakKey: Record<string, string> = {}

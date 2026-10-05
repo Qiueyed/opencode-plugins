@@ -207,7 +207,7 @@ Small utilities that pair with the plugins (no runtime dependency - the plugins 
 
 - **[tools/state-toggle](tools/state-toggle)** - atomic boolean toggle in `state/state.json`; the backend behind the vision-guard / peak-banner / auto-grant menu checkboxes.
 - **[tools/plugin-manager](tools/plugin-manager)** - enable/disable plugins without hand-moving files. OpenCode auto-loads everything in `plugins/` and has no native manager; this one moves local plugins to `plugins-disabled/` and comments npm entries out of `opencode.jsonc`. `plugin-manager list` to inspect.
-- **[tools/class-sweep.sh](tools/class-sweep.sh)** - automated bug-class sweeps distilled from a bug-hunting playbook. Default run sweeps the OpenCode config dir and this repo (stale state paths, version-pinned chunks, non-atomic writes, registry validity, marker pairing in the shipped bundle). `--project <dir>` runs universal checks on any managed project: `contracts.json` validation (including declarative **mustContain pattern contracts** and **installedTwin** userscript drift), `.bak` clutter, opt-in counter-drift ledger, scene integrity, plus **userscript projects** (`*.user.js` syntax, metadata, canary-proven quote scan, marker traps, duplicate top-level var, version sync vs the project WORKLOG) and **delegation** - if the project ships its own `tools/class-sweep.sh`, its exit code folds in.
+- **[tools/class-sweep.sh](tools/class-sweep.sh)** - automated bug-class sweeps distilled from a bug-hunting playbook. Default run sweeps the OpenCode config dir and this repo (stale state paths, version-pinned chunks, non-atomic writes, registry validity, marker pairing in the shipped bundle). `--project <dir>` runs universal checks on any managed project: `contracts.json` validation (including declarative **mustContain pattern contracts** and **installedTwin** userscript drift), `.bak` clutter, opt-in counter-drift ledger, scene integrity, plus **userscript projects** (`*.user.js` syntax, metadata, canary-proven quote scan, marker traps, duplicate top-level var, version sync vs the project WORKLOG), **PyObjC bridge scripts** (`.py` importing objc/AppKit/Foundation/Quartz: observer must be an NSObject subclass, selector names must map to existing methods - the SIGABRT-at-notification-time class, uncatchable in Python) and **delegation** - if the project ships its own `tools/class-sweep.sh`, its exit code folds in.
 
   **Scope warning:** every check is structural. A script can pass all of them and still ship a dead feature - a real case from this repo's history: a toggle had its CSS and wiring in place but was never registered in the toggle list, so it silently never ran, and only executing the shipped bytes against a stubbed browser exposed it. Structural sweeps cannot catch that class. Pair the sweep with a runtime probe battery: stub the environment, execute the file, assert outcomes (grep this repo's history or write your own - the pattern is ~200 lines).
 - **[tools/untrack-pycache.sh](tools/untrack-pycache.sh)** - untrack stray __pycache__/.pyc from a repo and push; --all sweeps every repo.
@@ -248,10 +248,13 @@ things it does not do:
 - **Permission auto-grant (opt-in, default OFF)**: approves every permission
   ask so agent runs never block. Set `notifyAutogrant: true` in
   `~/.config/opencode/state/state.json` to enable. Config-level denies still short-circuit before any ask.
-- **Attribution**: banners are targeted at the OpenCode bundle when it runs,
-  so they show OpenCode's name and icon instead of "Script Editor".
+- **Attribution, refuted**: banners targeted at the OpenCode bundle were
+  supposed to show OpenCode's name instead of "Script Editor" - A/B testing
+  proved every script banner shows "Script Editor" (tell-target included,
+  exit 0). Alerts are therefore **sound-only** (`afplay`, identity-free) and
+  banners are left to the app's own notifications.
 
-Kill switches: `peakBannerDisabled: true` in `state/state.json` (banners,
+Kill switches: `peakBannerDisabled: true` in `state/state.json` (alerts,
 live) and `notifyAutogrant: false` (permissions, at next restart).
 
 ## janitor

@@ -191,7 +191,7 @@ function resign() {
   // causing a repeat password prompt at launch.
   sh("codesign", ["--force", "--deep", "--sign", process.env.OC_SIGN_IDENTITY || "OpenCode Local Notifier", APP]);
   sh("codesign", ["--verify", "--deep", APP]);
-  console.log("codesign: ad-hoc re-signed + verified OK");
+  console.log(`codesign: re-signed as "${process.env.OC_SIGN_IDENTITY || "OpenCode Local Notifier"}" + verified OK`);
 }
 
 function findMainBundle(workdir) {

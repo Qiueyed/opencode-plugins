@@ -277,6 +277,137 @@ PY
       say "note userscript checks are STRUCTURAL (syntax/metadata/quotes). Behavioral coverage - does each feature actually run? - needs a runtime probe battery: stub the environment, execute the shipped bytes, assert outcomes."
     fi
   fi
+  # PyObjC / macOS bridge scripts: .py files importing objc/AppKit/Foundation/
+  # Quartz get callback-registration checks (2026-10-05 SIGABRT class: an
+  # observer that is not an NSObject subclass, or a selector whose mapped
+  # Python method name does not exist, aborts the process at notification
+  # time - uncatchable in Python, registration passing proves nothing).
+  PY_FILES=$(find . -maxdepth 3 -name "*.py" -not -path "./.git/*" -not -path "./archive/*" 2>/dev/null)
+  if [ -n "$PY_FILES" ]; then
+    PY_OBJC=$(grep -lE '^[[:space:]]*(from|import)[[:space:]]+(objc|AppKit|Foundation|Quartz)\b' $PY_FILES 2>/dev/null || true)
+    if [ -n "$PY_OBJC" ]; then
+      python3 - $PY_OBJC <<'PY' || fails=$((fails+1))
+import os, re, sys, tempfile
+TRIG = re.compile(r"^\s*(?:from|import)\s+(?:objc|AppKit|Foundation|Quartz)\b", re.M)
+def extract_calls(src):
+    out = []
+    for m in re.finditer(r"addObserver_selector_name_object_\s*\(", src):
+        i = m.end()
+        depth = 1
+        start = i
+        in_str = None
+        while i < len(src) and depth:
+            c = src[i]
+            if in_str:
+                if c == in_str:
+                    in_str = None
+            elif c in "\"'":
+                in_str = c
+            elif c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+            i += 1
+        out.append(src[start:i-1])
+    return out
+def split_args(s):
+    args = []
+    depth = 0
+    in_str = None
+    cur = ""
+    for c in s:
+        if in_str:
+            cur += c
+            if c == in_str:
+                in_str = None
+        elif c in "\"'":
+            in_str = c
+            cur += c
+        elif c == "(":
+            depth += 1
+            cur += c
+        elif c == ")":
+            depth -= 1
+            cur += c
+        elif c == "," and depth == 0:
+            args.append(cur.strip())
+            cur = ""
+        else:
+            cur += c
+    if cur.strip():
+        args.append(cur.strip())
+    return args
+def run_checks(filelist, loud):
+    defs = set()
+    for _, src in filelist:
+        defs.update(re.findall(r"\bdef\s+(\w+)\s*\(", src))
+    nsobject = any(re.search(r"\bclass\s+\w+\(NSObject\)", src) for _, src in filelist)
+    bad = 0
+    total = 0
+    kinds = set()
+    for path, src in filelist:
+        for call in extract_calls(src):
+            total += 1
+            args = split_args(call)
+            if args and re.fullmatch(r"\w+\(\)", args[0]):
+                kinds.add("anon")
+                bad += 1
+                if loud:
+                    print(f"FAIL pyobjc anonymous observer (GC class): {path}")
+            if len(args) >= 2:
+                sel = args[1].strip().strip("\"'")
+                if sel.endswith(":"):
+                    mapped = sel.replace(":", "_")
+                    if mapped not in defs:
+                        kinds.add("mismatch")
+                        bad += 1
+                        if loud:
+                            print(f"FAIL pyobjc selector/method mismatch: selector \"{sel}\" has no def {mapped}() ({path})")
+            if not nsobject:
+                kinds.add("nsobject")
+                bad += 1
+                if loud:
+                    print(f"FAIL pyobjc observer class does not subclass NSObject ({path})")
+    return bad, total, kinds
+files = []
+for p in sys.argv[1:]:
+    try:
+        src = open(p, encoding="utf-8", errors="replace").read()
+    except OSError:
+        continue
+    if TRIG.search(src):
+        files.append((p, src))
+if not files:
+    print("ok   pyobjc: no PyObjC-importing files")
+    sys.exit(0)
+bad, total, _ = run_checks(files, loud=True)
+# canary: silent run against a known-bad file exercising ALL detectors; each
+# detector must fire there or every clean result is untrustworthy
+CANARY = (
+    "from Foundation import NSObject\n"
+    "class Observer:\n"
+    "    pass\n"
+    "nc.addObserver_selector_name_object_(Observer(), \"callback:\", \"X\", None)\n"
+)
+with tempfile.TemporaryDirectory() as td:
+    cp = os.path.join(td, "canary.py")
+    with open(cp, "w", encoding="utf-8") as fh:
+        fh.write(CANARY)
+    _, _, ckinds = run_checks([(cp, open(cp, encoding="utf-8").read())], loud=False)
+missing = {"anon", "mismatch", "nsobject"} - ckinds
+if missing:
+    print(f"FAIL pyobjc canary: checker missed known-bad detector(s): {sorted(missing)} (results untrustworthy)")
+    bad += 1
+else:
+    print("ok   pyobjc canary: all 3 detectors flag known-bad")
+if bad == 0:
+    print(f"ok   pyobjc: {total} registration(s) checked across {len(files)} file(s)")
+sys.exit(1 if bad else 0)
+PY
+    else
+      say "ok   pyobjc: no PyObjC-importing files"
+    fi
+  fi
   # delegation convention: projects shipping their own tools/class-sweep.sh
   # own their deeper contracts; its exit code folds into this sweep so one
   # command covers universal + project-specific checks

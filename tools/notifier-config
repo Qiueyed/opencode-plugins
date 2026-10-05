@@ -14,11 +14,15 @@ import os
 import subprocess
 import sys
 
-# Default = the npm notifier's own default path. To keep the config in
-# ~/.config/opencode/state/ instead (cleaner root), either set
-# OPENCODE_NOTIFIER_CONFIG_PATH for the notifier and pass --cfg here, or
-# symlink root -> state and let the default stand.
+# The plugin's config resolution VARIES: env OPENCODE_NOTIFIER_CONFIG_PATH
+# overrides; 0.4.0 defaults to ~/.config/opencode/opencode-notifier.json, but
+# the LIVE instance provably writes its turn-state next to the STATE twin
+# (~/.config/opencode/state/) - mechanism unidentified (no env var found in
+# any process). Therefore: write BOTH files, always identical (2026-10-05;
+# before this the tool wrote only the state twin and 0.4.0's default would
+# have made menu edits silent no-ops).
 CFG = os.path.expanduser("~/.config/opencode/opencode-notifier.json")
+CFG_MIRROR = os.path.expanduser("~/.config/opencode/state/opencode-notifier.json")
 DEFAULTS = {
     "question": "/System/Library/Sounds/Tink.aiff",
     "error": "/System/Library/Sounds/Tink.aiff",
@@ -39,6 +43,12 @@ def save(cfg):
     with open(tmp, "w") as f:
         json.dump(cfg, f, indent=2)
     os.replace(tmp, CFG)
+    # keep the legacy state twin in lockstep (same bytes, same instant)
+    if os.path.dirname(CFG_MIRROR) and os.path.exists(CFG_MIRROR):
+        mtmp = f"{CFG_MIRROR}.tmp.{os.getpid()}"
+        with open(mtmp, "w") as f:
+            json.dump(cfg, f, indent=2)
+        os.replace(mtmp, CFG_MIRROR)
 
 
 def main():
