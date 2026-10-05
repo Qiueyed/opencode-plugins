@@ -54,6 +54,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { createHash } from "crypto";
 import { execFileSync } from "child_process";
 
 const APP = process.env.OPENCODE_APP_PATH || "/Applications/OpenCode.app";
@@ -183,6 +184,34 @@ function cssBlock() {
   color: #d29922;
 }
 
+/* Model select DIALOG (1.18 DialogSelectModel - the modal picker with the
+   Connect provider / Manage models buttons). The class is injected onto the
+   Dialog$2 content by applyModelDialogSize(); sized like the popover presets,
+   capped to the viewport. */
+.oc-model-dlg {
+  width: min(92vw, ${POPOVER_WIDTH_REM + 16}rem);
+  height: min(80vh, ${POPOVER_HEIGHT_REM - 2}rem);
+}
+
+/* v4.3: the composer's model popover, sized DIRECTLY via its own injected
+   class (the .z-50.h-80 selector proved unreliable on 1.18.34). */
+.oc-popover {
+  width: ${POPOVER_WIDTH_REM + 16}rem !important;
+  height: ${POPOVER_HEIGHT_REM + 12}rem !important;
+}
+
+/* v4.4: the REAL composer model picker - MenuV2 dropdown
+   (data-component=menu-v2-content), class injected at its creation site.
+   44rem wide; the inner row scroller caps itself at max-h-[220px], raised
+   here. (Canary tints removed 2026-10-05 after identification.) */
+.oc-model-menu {
+  width: 40rem !important;
+  max-height: min(70vh, 50rem) !important;
+}
+.oc-model-menu [class*="max-h-[220px]"] {
+  max-height: min(60vh, 42rem) !important;
+}
+
 ${CSS_MARKER_END}`;
 }
 
@@ -292,13 +321,24 @@ function ocColoredTitle(t) {
   wrap.appendChild(document.createTextNode(t.slice(m[0].length)));
   return wrap;
 }
+function ocSetTitleNodes(el, t) {
+  try {
+    if (!el) return;
+    const n = ocColoredTitle(t);
+    if (n && typeof n === "object" && n.nodeType) {
+      el.replaceChildren(n);
+    } else {
+      el.textContent = t == null ? "" : String(t);
+    }
+  } catch {}
+}
 ${JS_MARKER_END}`;
 }
 
 /** Shared transform: strip old blocks, normalize inserts, inject helper,
  * probe + assert + syntax-check. Returns nothing; throws on any drift.
  * minRowSites: expected minimum count of `insert(el, title)` sites. */
-function applyTitleColor(file, label, { minRowSites, expectTabSite }) {
+function applyTitleColor(file, label) {
   let js = fs.readFileSync(file, "utf8");
   // Idempotency: strip ALL previous helper blocks (LOOP, not single indexOf:
   // a past audit found two stacked blocks because this step was
@@ -326,35 +366,58 @@ function applyTitleColor(file, label, { minRowSites, expectTabSite }) {
     /insert\(([\w$]+), \(\) => ocColoredTitle\(props\.title\)\);/g,
     "insert($1, () => props.title);",
   );
-  // Session-title insert sites route through the color helper. The accessor
-  // form tolerates `title` being a memo (function) or a plain value.
-  const rowSites = js.match(/insert\(([\w$]+), title\);/g);
-  const rowCount = rowSites ? rowSites.length : 0;
-  if (rowCount < minRowSites) {
+  // v4 tab wrap (TabNavItem) back to stock form.
+  js = js.replace(/ocSetTitleNodes\(titleEl, title\(\) \?\? ""\);/g, 'titleEl.textContent = title() ?? "";');
+  // v4 (1.18.34, 2026-10-05): the 1.16 global-count anchors drifted (five
+  // tab-shaped props.title sites and seven row-shaped title sites, most in
+  // unrelated components). Anchor by SCOPE now: each target is the FIRST
+  // matching insert inside a NAMED component function.
+  const scopedFirst = (scopeNeedle, insertRe, windowSize, what) => {
+    const s = js.indexOf(scopeNeedle);
+    if (s === -1) {
+      throw new Error(`${label}: scope anchor not found (${what}): ${JSON.stringify(scopeNeedle.slice(0, 50))}; re-derive from a fresh bundle extract`);
+    }
+    const zone = js.slice(s, s + windowSize);
+    const m = zone.match(insertRe);
+    if (!m) {
+      throw new Error(`${label}: no ${what} insert within ${windowSize} chars of its scope anchor; re-derive`);
+    }
+    return { index: s + zone.indexOf(m[0]), text: m[0], arg: m[1] };
+  };
+
+  const rowSite = scopedFirst(
+    "const SessionRow = (props) => {",
+    /insert\(([\w$]+), title\);/,
+    8000,
+    "session list row (SessionRow)",
+  );
+  js =
+    js.slice(0, rowSite.index) +
+    `insert(${rowSite.arg}, () => ocColoredTitle(typeof title === "function" ? title() : title));` +
+    js.slice(rowSite.index + rowSite.text.length);
+
+  const homeSite = scopedFirst(
+    "function HomeSessionTitle(props) {",
+    /insert\(([\w$]+), \(\) => props\.title\);/,
+    3000,
+    "home session title (HomeSessionTitle)",
+  );
+  js =
+    js.slice(0, homeSite.index) +
+    `insert(${homeSite.arg}, () => ocColoredTitle(props.title));` +
+    js.slice(homeSite.index + homeSite.text.length);
+
+  // v4: the session TAB (TabNavItem) renders its title via textContent, not
+  // insert() - route the display assignment through a DOM-building helper.
+  const TAB_STOCK = 'titleEl.textContent = title() ?? "";';
+  const tabCount = js.split(TAB_STOCK).length - 1;
+  if (tabCount !== 1) {
     throw new Error(
-      `${label}: title insert anchor count drifted: ${rowCount} (expected >= ${minRowSites}); ` +
+      `${label}: session tab (TabNavItem) textContent anchor count drifted: ${tabCount} (expected 1); ` +
         "re-derive the anchor from a fresh bundle extract",
     );
   }
-  js = js.replace(
-    /insert\(([\w$]+), title\);/g,
-    "insert($1, () => ocColoredTitle(typeof title === \"function\" ? title() : title));",
-  );
-  let tabCount = 0;
-  const tabMatches = js.match(/insert\(([\w$]+), \(\) => props\.title\);/g);
-  tabCount = tabMatches ? tabMatches.length : 0;
-  if (expectTabSite) {
-    if (tabCount !== 1) {
-      throw new Error(
-        `${label}: session tab anchor count drifted: ${tabCount} (expected 1); ` +
-          "re-derive the anchor from a fresh bundle extract",
-      );
-    }
-    js = js.replace(
-      /insert\(([\w$]+), \(\) => props\.title\);/,
-      "insert($1, () => ocColoredTitle(props.title));",
-    );
-  }
+  js = js.replace(TAB_STOCK, 'ocSetTitleNodes(titleEl, title() ?? "");');
   const helperBlock = titleColorHelperBlock();
   // PROOF-OF-DEFINITION + UNIT-MATH guard: evaluate the helper
   // block for real AND assert the MB conversion that a past bug got
@@ -364,11 +427,11 @@ function applyTitleColor(file, label, { minRowSites, expectTabSite }) {
   // in node). Any regression fails HERE, before the asar is written.
   const probe = new Function(
     helperBlock +
-      "\nreturn [typeof ocColoredTitle, ocTitleMB('330K'), ocTitleMB('12K'), ocTitleMB('150M'), ocTitleMB('569M'), ocTitleMB('1.1G'), ocTitleMB('0B')];",
+      "\nreturn [typeof ocColoredTitle, typeof ocSetTitleNodes, ocTitleMB('330K'), ocTitleMB('12K'), ocTitleMB('150M'), ocTitleMB('569M'), ocTitleMB('1.1G'), ocTitleMB('0B')];",
   );
-  const [fnType, k330, k12, m150, m569, g11, b0] = probe();
-  if (fnType !== "function") {
-    throw new Error("ocColoredTitle did not evaluate to a function; refusing to write the bundle");
+  const [fnType, setFnType, k330, k12, m150, m569, g11, b0] = probe();
+  if (fnType !== "function" || setFnType !== "function") {
+    throw new Error("ocColoredTitle/ocSetTitleNodes did not evaluate to functions; refusing to write the bundle");
   }
   const close = (a, b) => Math.abs(a - b) < 0.01;
   const unitOk =
@@ -395,19 +458,30 @@ function applyTitleColor(file, label, { minRowSites, expectTabSite }) {
     }
   }
   const wired = js.match(/ocColoredTitle\(/g);
-  // 1 definition reference + (row sites + optional tab) wrapped call sites.
-  const expectedWired = 1 + rowCount + (expectTabSite ? tabCount : 0);
-  if (!wired || wired.length < expectedWired) {
+  // Exactly 4 references: 1 declaration + 2 scoped call sites (SessionRow,
+  // HomeSessionTitle) + 1 internal call inside ocSetTitleNodes. The tab site
+  // itself uses ocSetTitleNodes instead.
+  if (!wired || wired.length !== 4) {
     throw new Error(
-      `pre-repack check failed: expected >= ${expectedWired} ocColoredTitle references, found ${wired ? wired.length : 0}`,
+      `pre-repack check failed: expected exactly 4 ocColoredTitle references (1 decl + 2 sites + 1 internal), found ${wired ? wired.length : 0}`,
     );
   }
-  // EXACTLY-ONE declaration (a past audit found two stacked
+  const setWired = js.match(/ocSetTitleNodes\(/g);
+  if (!setWired || setWired.length !== 2) {
+    throw new Error(
+      `pre-repack check failed: expected exactly 2 ocSetTitleNodes references (1 decl + 1 tab site), found ${setWired ? setWired.length : 0}`,
+    );
+  }
+  // EXACTLY-ONE declarations (a past audit found two stacked
   // copies -> "Identifier already declared" SyntaxError at launch). Count, do
   // not just test.
   const decls = js.match(/function ocColoredTitle\(/g);
   if (!decls || decls.length !== 1) {
     throw new Error(`expected exactly 1 ocColoredTitle declaration, found ${decls ? decls.length : 0}`);
+  }
+  const setDecls = js.match(/function ocSetTitleNodes\(/g);
+  if (!setDecls || setDecls.length !== 1) {
+    throw new Error(`expected exactly 1 ocSetTitleNodes declaration, found ${setDecls ? setDecls.length : 0}`);
   }
   // FULL-FILE SYNTAX CHECK of the transformed bundle (the probe above only
   // evaluates the helper block; this proves the WHOLE file still parses -
@@ -421,7 +495,7 @@ function applyTitleColor(file, label, { minRowSites, expectTabSite }) {
   }
   fs.writeFileSync(file, js);
   console.log(
-    `  ${label}: ${rowCount} row site(s)${expectTabSite ? ` + ${tabCount} tab site` : ""} routed; probe + assertions + single-decl + node --check OK`,
+    `  ${label}: SessionRow + HomeSessionTitle + TabNavItem(titleEl) routed; probe + assertions + single-decl + node --check OK`,
   );
 }
 
@@ -480,10 +554,11 @@ function applyModelBadges(file, label) {
   }
   if (stripped > 0) console.log(`  ${label}: stripped ${stripped} previous badge helper block(s)`);
   // strip ANY previous call site line regardless of indentation
+  js = js.replace(/^[ \t]*ocModelBadges\(i2, _el\$\);[ \t]*\n?/gm, "");
   js = js.replace(/^[ \t]*ocModelBadges\(i, _el\$\);[ \t]*\n?/gm, "");
-  // The compiled ModelList row builder. Unique in the chunk: the row
-  // template var is referenced exactly once, in the children function.
-  const ANCHOR = "var _el$ = _tmpl$$E(), _el$2 = _el$.firstChild;";
+  // The compiled ModelList row builder (1.18.34: template _tmpl$$1b, item
+  // variable i2). Scoped: must sit shortly after the ModelList definition.
+  const ANCHOR = "var _el$ = _tmpl$$1b(), _el$2 = _el$.firstChild;";
   const anchorCount = js.split(ANCHOR).length - 1;
   if (anchorCount !== 1) {
     throw new Error(
@@ -492,6 +567,10 @@ function applyModelBadges(file, label) {
     );
   }
   const anchorIdx = js.indexOf(ANCHOR);
+  const mlIdx = js.lastIndexOf("const ModelList = (props) => {", anchorIdx);
+  if (mlIdx === -1 || anchorIdx - mlIdx > 6000) {
+    throw new Error(`${label}: row anchor not inside ModelList scope; re-derive`);
+  }
   const retIdx = js.indexOf("return _el$;", anchorIdx);
   if (retIdx === -1 || retIdx - anchorIdx > 4000) {
     throw new Error(`${label}: row builder return not found within expected distance; re-derive anchor`);
@@ -512,7 +591,7 @@ function applyModelBadges(file, label) {
   }
   // insert the call INSIDE the row builder IIFE, right before its return
   // (retIdx is preceded by the builder's existing indentation)
-  js = js.slice(0, retIdx) + "ocModelBadges(i, _el$);\n      " + js.slice(retIdx);
+  js = js.slice(0, retIdx) + "ocModelBadges(i2, _el$);\n      " + js.slice(retIdx);
   js = modelBadgeHelperBlock() + "\n" + js;
   // pre-repack assertions: exactly one declaration, wired call present,
   // whole file still parses
@@ -520,7 +599,7 @@ function applyModelBadges(file, label) {
   if (!decls || decls.length !== 1) {
     throw new Error(`expected exactly 1 ocModelBadges declaration, found ${decls ? decls.length : 0}`);
   }
-  if ((js.match(/ocModelBadges\(i, _el\$\)/g) || []).length !== 1) {
+  if ((js.match(/ocModelBadges\(i2, _el\$\)/g) || []).length !== 1) {
     throw new Error("badge call site not wired exactly once");
   }
   const syntaxProbe = path.join(path.dirname(file), "syntax-check-mb.mjs");
@@ -536,12 +615,12 @@ function applyModelBadges(file, label) {
 
 function patchModelBadges(workdir) {
   const assets = path.join(workdir, "out", "renderer", "assets");
-  // The session chunk holds the ModelList row template; find it by content.
+  // The main bundle holds the ModelList row template; find it by content.
   for (const f of fs.readdirSync(assets).filter((x) => x.endsWith(".js"))) {
     const p = path.join(assets, f);
     let has = false;
     try {
-      has = fs.readFileSync(p, "utf8").includes("var _el$ = _tmpl$$E(), _el$2 = _el$.firstChild;");
+      has = fs.readFileSync(p, "utf8").includes("var _el$ = _tmpl$$1b(), _el$2 = _el$.firstChild;");
     } catch (e) {
       console.log(`  skipping unreadable ${f}: ${e.message}`);
       continue;
@@ -551,7 +630,7 @@ function patchModelBadges(workdir) {
       return;
     }
   }
-  throw new Error("session chunk with ModelList row template not found; bundle layout changed");
+  throw new Error("renderer chunk with ModelList row template not found; bundle layout changed");
 }
 
 /** v4: native "Plugins" application menu. Injected into the MAIN bundle at
@@ -791,6 +870,140 @@ function seedRegistry() {
   console.log("seeded plugins-menu registry:", REGISTRY_FILE);
 }
 
+/** v4.1 (1.18.34): the model picker most users open is now the full
+ * DialogSelectModel modal, not the small w-72 h-80 popover. Inject a class
+ * onto its Dialog$2 call; the CSS block sizes .oc-model-dlg. Scoped anchor,
+ * idempotent, fail loud. */
+function applyModelDialogSize(file, label) {
+  let js = fs.readFileSync(file, "utf8");
+  const INJECTED = 'createComponent(Dialog$2, { "class": "oc-model-dlg", ';
+  // idempotency: normalize both this script's injected forms back to stock
+  js = js.split(INJECTED).join("createComponent(Dialog$2, {");
+  js = js.replace(/createComponent\(Dialog\$2, \{\s*"class": "oc-model-dlg",\s*/g, "createComponent(Dialog$2, {");
+  const SCOPE = "const DialogSelectModel = (props) => {";
+  const scopeCount = js.split(SCOPE).length - 1;
+  if (scopeCount !== 1) {
+    throw new Error(`${label}: DialogSelectModel scope count drifted: ${scopeCount} (expected 1); re-derive`);
+  }
+  const s = js.indexOf(SCOPE);
+  const callIdx = js.indexOf("createComponent(Dialog$2, {", s);
+  if (callIdx === -1 || callIdx - s > 4000) {
+    throw new Error(`${label}: Dialog$2 call not found within DialogSelectModel; re-derive`);
+  }
+  js = js.slice(0, callIdx) + INJECTED + js.slice(callIdx + "createComponent(Dialog$2, {".length);
+  if (js.split('"oc-model-dlg"').length - 1 !== 1) {
+    throw new Error(`pre-repack check failed: expected exactly 1 oc-model-dlg class injection, found ${js.split('"oc-model-dlg"').length - 1}`);
+  }
+  const syntaxProbe = path.join(path.dirname(file), "syntax-check-dlg.mjs");
+  fs.writeFileSync(syntaxProbe, js);
+  try {
+    sh("node", ["--check", syntaxProbe]);
+  } finally {
+    fs.rmSync(syntaxProbe, { force: true });
+  }
+  fs.writeFileSync(file, js);
+  console.log(`  ${label}: model select dialog classed oc-model-dlg (sized via CSS); node --check OK`);
+}
+
+/** v4.3 (1.18.34): identify + size the ACTUAL composer model picker. Three
+ * candidates exist: the w-72 h-80 quick popover (ModelPickerPopover), the
+ * DialogSelectModel dialog (classed oc-model-dlg elsewhere), and the
+ * DialogSelectModelUnpaidV2 funnel (inline 640px containerClass cap). Canary
+ * classes/tints ship together with the size fixes: whichever container
+ * renders shows its color AND its size fix in the same restart. */
+function applyModelPickers(file, label) {
+  let js = fs.readFileSync(file, "utf8");
+  const fixes = [];
+
+  // 1. Quick popover: inject oc-popover into its literal class string.
+  const POP_STOCK = '"w-72 h-80 flex flex-col p-2 rounded-md border border-border-base bg-surface-raised-stronger-non-alpha shadow-md z-50 outline-none overflow-hidden"';
+  const POP_PATCHED = '"w-72 h-80 oc-popover flex flex-col p-2 rounded-md border border-border-base bg-surface-raised-stronger-non-alpha shadow-md z-50 outline-none overflow-hidden"';
+  js = js.split(POP_PATCHED).join(POP_STOCK);
+  const popCount = js.split(POP_STOCK).length - 1;
+  if (popCount !== 1) {
+    throw new Error(`${label}: quick popover class anchor count drifted: ${popCount} (expected 1); re-derive`);
+  }
+  js = js.replace(POP_STOCK, POP_PATCHED);
+  fixes.push("oc-popover (52x60rem)");
+
+  // 2. UnpaidV2: widen the inline containerClass cap 640px -> 960px + canary.
+  const UP_SCOPE = "const DialogSelectModelUnpaidV2 = (props) => {";
+  const upCount = js.split(UP_SCOPE).length - 1;
+  if (upCount !== 1) {
+    throw new Error(`${label}: DialogSelectModelUnpaidV2 scope count drifted: ${upCount}; re-derive`);
+  }
+  const upIdx = js.indexOf(UP_SCOPE);
+  const upZoneOld = js.slice(upIdx, upIdx + 2500);
+  const W_CAP = "!w-[min(calc(100vw_-_16px),640px)]";
+  const W_BIG = "!w-[min(calc(100vw_-_16px),960px)]";
+  const upZone = upZoneOld.replace(W_CAP, W_BIG).replace('containerClass: "!h-auto', 'containerClass: "oc-unpaid-dlg !h-auto');
+  if (upZone === upZoneOld) {
+    const already = upZoneOld.includes(W_BIG) && upZoneOld.includes("oc-unpaid-dlg");
+    if (!already) {
+      throw new Error(`${label}: UnpaidV2 containerClass not found in scope; re-derive`);
+    }
+    console.log(`  ${label}: UnpaidV2 already sized; skipping`);
+  } else {
+    js = js.slice(0, upIdx) + upZone + js.slice(upIdx + 2500);
+    fixes.push("UnpaidV2 960px + oc-unpaid-dlg");
+  }
+
+  const syntaxProbe = path.join(path.dirname(file), "syntax-check-mp.mjs");
+  fs.writeFileSync(syntaxProbe, js);
+  try {
+    sh("node", ["--check", syntaxProbe]);
+  } finally {
+    fs.rmSync(syntaxProbe, { force: true });
+  }
+  fs.writeFileSync(file, js);
+  console.log(`  ${label}: model pickers patched: ${fixes.join(", ")}; node --check OK`);
+}
+
+/** v4.4 (1.18.34): THE actual composer model picker - a MenuV2 dropdown
+ * (data-component=menu-v2-content, 284px stock), found via live-DOM canary.
+ * Inject oc-model-menu onto its content (sized + canary tinted via CSS) and
+ * wire ocModelBadges into its row builder (item var `item`, name el `_el$13`). */
+function applyModelMenu(file, label) {
+  let js = fs.readFileSync(file, "utf8");
+  const MENU_STOCK = '"w-[284px] overflow-hidden rounded-md border-0 bg-v2-background-bg-layer-01 !p-0 shadow-[var(--v2-elevation-floating)] focus:outline-none"';
+  const MENU_PATCHED = '"w-[284px] oc-model-menu overflow-hidden rounded-md border-0 bg-v2-background-bg-layer-01 !p-0 shadow-[var(--v2-elevation-floating)] focus:outline-none"';
+  js = js.split(MENU_PATCHED).join(MENU_STOCK);
+  const menuCount = js.split(MENU_STOCK).length - 1;
+  if (menuCount !== 1) {
+    throw new Error(`${label}: model menu class anchor count drifted: ${menuCount} (expected 1); re-derive`);
+  }
+  js = js.replace(MENU_STOCK, MENU_PATCHED);
+
+  const NAME_STOCK = "var _el$13 = _tmpl$1$c();";
+  const nameCount = js.split(NAME_STOCK).length - 1;
+  if (nameCount !== 1) {
+    throw new Error(`${label}: model row name anchor count drifted: ${nameCount} (expected 1); re-derive`);
+  }
+  const nIdx = js.indexOf(NAME_STOCK);
+  const insNeedle = "insert(_el$13, () => item.name);";
+  // idempotency: strip any previous badge call first
+  js = js.split("\n ocModelBadges(item, _el$13);").join("");
+  const iIdx = js.indexOf(insNeedle, nIdx);
+  if (iIdx === -1 || iIdx - nIdx > 200) {
+    throw new Error(`${label}: row name insert not found near anchor; re-derive`);
+  }
+  const insertEnd = iIdx + insNeedle.length;
+  js = js.slice(0, insertEnd) + "\n ocModelBadges(item, _el$13);" + js.slice(insertEnd);
+
+  if (js.split("ocModelBadges(item, _el$13)").length - 1 !== 1) {
+    throw new Error("model menu badge call not wired exactly once");
+  }
+  const syntaxProbe = path.join(path.dirname(file), "syntax-check-mm.mjs");
+  fs.writeFileSync(syntaxProbe, js);
+  try {
+    sh("node", ["--check", syntaxProbe]);
+  } finally {
+    fs.rmSync(syntaxProbe, { force: true });
+  }
+  fs.writeFileSync(file, js);
+  console.log(`  ${label}: model menu classed oc-model-menu (40rem) + row badges wired; node --check OK`);
+}
+
 function patchTitleJs(workdir) {
   const assets = path.join(workdir, "out", "renderer", "assets");
   const all = fs
@@ -808,17 +1021,19 @@ function patchTitleJs(workdir) {
         "bundle layout changed - re-derive the anchor from a fresh bundle extract",
     );
   }
-  applyTitleColor(mainFile, all[0].f, { minRowSites: 1, expectTabSite: true });
-  // Home chunk (user-facing home session list + search result rows; found by
-  // a past audit): same helper injected into ITS module scope.
+  applyTitleColor(mainFile, all[0].f);
+  applyModelDialogSize(mainFile, all[0].f);
+  applyModelPickers(mainFile, all[0].f);
+  applyModelMenu(mainFile, all[0].f);
+  // Home chunk (1.16 split it out; 1.18.34 folds HomeSessionTitle into the
+  // main bundle - the scan below simply finds nothing there).
   const home = all.filter((x) => /^home-.*\.js$/.test(x.f));
   if (home.length > 0) {
-    applyTitleColor(path.join(assets, home[0].f), home[0].f, { minRowSites: 1, expectTabSite: false });
+    applyTitleColor(path.join(assets, home[0].f), home[0].f);
   }
 }
 
-function patchCss(workdir) {  const assets = path.join(workdir, "out", "renderer", "assets");
-  const candidates = fs
+function patchCss(workdir) {  const assets = path.join(workdir, "out", "renderer", "assets");  const candidates = fs
     .readdirSync(assets)
     .filter((f) => /^main-.*\.css$/.test(f) || (f === "main.css" && !f.includes("-")));
   if (candidates.length === 0) {
@@ -849,6 +1064,28 @@ function patchCss(workdir) {  const assets = path.join(workdir, "out", "renderer
   css = css.trimEnd() + "\n\n" + cssBlock() + "\n";
   fs.writeFileSync(file, css);
   console.log(`patched ${path.basename(file)} (${candidates[0]})`);
+
+  // v4.4 CACHE-BUSTING: the oc:// protocol handler caches aggressively and my
+  // in-place edits keep the same filename, so the renderer served a STALE
+  // stylesheet across restarts (2026-10-05: every CSS-only change was
+  // invisible). The css is referenced ONLY by index.html (never imported by
+  // js chunks), so publish it under a content-hashed name and repoint the
+  // html link; the old cache entry can never be hit again.
+  const crypto = { createHash };
+  const h = crypto.createHash("sha256").update(css).digest("hex").slice(0, 10);
+  const bustName = `main-oc-${h}.css`;
+  fs.writeFileSync(path.join(assets, bustName), css);
+  for (const f of fs.readdirSync(assets)) {
+    if (/^main-oc-[0-9a-f]{10}\.css$/.test(f) && f !== bustName) fs.rmSync(path.join(assets, f));
+  }
+  const htmlPath = path.join(workdir, "out", "renderer", "index.html");
+  let html = fs.readFileSync(htmlPath, "utf8");
+  html = html
+    .replace(/\.\/assets\/main-oc-[0-9a-f]{10}\.css/, `./assets/${bustName}`)
+    .replace(/\.\/assets\/((?!main-oc-)[\w.-]+)\.css/, `./assets/${bustName}`);
+  if (!html.includes(bustName)) throw new Error("cache-bust: failed to rewrite index.html css href");
+  fs.writeFileSync(htmlPath, html);
+  console.log(`cache-busted stylesheet: ./assets/${bustName} (index.html href updated)`);
 }
 
 function main() {
@@ -877,6 +1114,8 @@ function main() {
     extractAsar(workdir);
     patchCss(workdir);
     patchTitleJs(workdir);
+    // v4.2 (1.18.34): model badges re-derived (row template _tmpl$$1b, item
+    // i2). Fail-loud again: badge anchor drift blocks the patch run loudly.
     patchModelBadges(workdir);
     patchPluginsMenu(workdir);
     const packed = path.join(workdir, "app.asar.new");

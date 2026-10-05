@@ -1,0 +1,16 @@
+#!/bin/bash
+# badge-toggle <ctx|img|cost> - flip a model-row badge flag (state.json,
+# the Plugins-menu checkbox backend) AND re-patch the app via oc-ui badge.
+# The new badge visibility loads at next app restart (oc-ui reminds you).
+set -euo pipefail
+FAMILY="${1:?usage: badge-toggle <ctx|img|cost>}"
+case "$FAMILY" in ctx|img|cost) ;; *) echo "unknown badge family: $FAMILY" >&2; exit 2 ;; esac
+D="$HOME/.config/opencode"
+KEY="ocBadge${FAMILY^}"
+raw="$(sh "$D/tools/state-toggle" "$KEY")"
+case "$raw" in
+  *true*)  v="on"  ;;
+  *false*) v="off" ;;
+  *) echo "could not parse state-toggle output: $raw" >&2; exit 1 ;;
+esac
+exec sh "$D/patches/oc-ui" badge "$FAMILY" "$v"

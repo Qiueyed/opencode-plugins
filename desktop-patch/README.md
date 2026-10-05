@@ -13,12 +13,12 @@ tags, and the Plugins menu is the control surface for the whole plugin set.
 | # | Feature | Detail |
 |---|---|---|
 | 1 | Model-picker rows stop clipping | name spans shrink -> real ellipsis, badges stay visible |
-| 2 | Model-picker popover enlarges | stock 288x320 -> 384x512, configurable via `oc-ui` |
+| 2 | Model-picker enlarged | the 1.18.34 composer picker is the `ModelSelectorPopoverV2View` MenuV2 dropdown - patched to a 40rem-wide menu with raised inner scroll (`.oc-model-menu`); the three other model-picker containers in the bundle are dead code in this flow and stay patched harmlessly |
 | 3 | Colored session titles | a leading size tag (`428M · Title`) renders red >= 300MB / amber >= 100MB / green; pairs with the session-size plugin, harmless without it |
-| 4 | Model row info badges | context window (`200K`/`1M`), `IMG` when the model accepts image input, `$in/M` input price - right-aligned chips per row |
+| 4 | Model row info badges | context window (`200K`/`1M`), `IMG` when the model accepts image input, `$in/M` input price - wired into BOTH the ModelList rows and the picker menu rows; toggled from the Plugins menu as checkbox entries (`tools/badge-toggle` is the CLI backend). Ollama models show no chips: the provider reports no context/cost metadata |
 | 8 | **Image-capability default** | `patch-opencode-image-capability.mjs` flips the fallback capability literal (text-only) to image-capable, so models you define manually in opencode.jsonc - custom providers with no models.dev entry - are not pre-flight blocked from sending images. Catalog-backed models keep their real capabilities; audio/video/pdf stay gated; a truly non-vision model surfaces its own provider error instead. Finds the chunk by anchor (survives version bumps); shares the pristine backup and --revert with the other patches |
 | 7 | **Edit-candidates** error enrichment | `patch-opencode-edit-candidates.mjs` upgrades the edit tool's two dead-end errors: "oldString not found" gains grouped closest lines/regions (`L2, L4, L6 (100% after trim ...); L9 (85%: preview)`), "multiple matches" gains candidate locations, and degenerate needles (single letters, whitespace) get told they are too short instead of a mass-replace hint; CRLF files are called out. Ships with a standalone test harness (`test-edit-candidates.mjs`, 12 assertions incl. adversarial inputs + perf sanity) |
-| 6 | Session **Trim & clean** submenu | `patch-opencode-session-menu.mjs` adds one expandable entry to the session "..." menu: mild trim (keep count from the janitor settings), remove images, remove reads, hard trim last. Writes `⏳`-markers into session titles; the [janitor](../janitor/) consumes them at the next app close |
+| 6 | Session **Trim & clean** menu items | `patch-opencode-session-menu.mjs` adds flat items to the session title menu - Trim mild (keep count from the janitor settings), Remove images, Remove reads, Trim hard (last 5) - in BOTH title-menu variants (MenuV2 has no submenu support, so no expandable entry; menu width raised 120->210px so labels don't wrap). Writes `⏳`-markers via each scope's own mutation; the [janitor](../janitor/) consumes them at the next app close |
 | 5 | Native **Plugins** menu | a new application menu built from a JSON registry: any plugin or user can add toggle/action items (checkboxes backed by marker files) |
 
 ## Install
@@ -38,16 +38,26 @@ Then quit OpenCode (Cmd+Q) and reopen.
 The script: extracts `app.asar`, applies marker-delimited patches with
 anchor verification + runtime probes + a full-file syntax check, repacks,
 updates the `ElectronAsarIntegrity` hash in Info.plist (integrity stays
-enabled), ad-hoc re-signs, and keeps one pristine
-`app.asar.original.bak`. Every step fails loud on drift - a failed run
-leaves your installed app untouched.
+enabled), re-signs with the stable `OpenCode Local Notifier` identity
+(ad-hoc resigns break the keychain ACL for "OpenCode Safe Storage" and
+cause a repeat password prompt on every run), publishes the patched
+stylesheet under a content-hashed name (`main-oc-<sha256[:10]>.css` + an
+index.html href rewrite - the app's `oc://` protocol caches same-named
+assets, so in-place CSS edits stay invisible without the bust), and keeps
+one pristine `app.asar.original.bak`. Every step fails loud on drift - a
+failed run leaves your installed app untouched.
 
-**Verified on OpenCode 1.16.2.** Anchors are version-specific on purpose:
+**Verified on OpenCode 1.18.34** (ports survive from 1.16.2 via anchored
+patches). Anchors are version-specific on purpose:
 if an app update changes the bundle, the script refuses and tells you -
 it will never guess.
 
-Re-apply after every app auto-update (updates replace the whole bundle).
-Revert anytime:
+Re-apply after every app update (updates replace the whole bundle). Note:
+on a patched bundle the in-app "Restart now" update button can silently
+fail (the download sits in the updater's pending cache); the manual path
+is [tools/oc-update-118](../tools/oc-update-118) then
+[tools/oc-post-update](../tools/oc-post-update), which runs all four
+patchers fail-fast in one command. Revert anytime:
 
 ```sh
 node patch-opencode-desktop-ui.mjs --revert

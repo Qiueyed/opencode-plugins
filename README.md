@@ -203,7 +203,7 @@ npm install, no build step, and no other file from this repo.
 
 ## Tools
 
-Small Python utilities that pair with the plugins (no runtime dependency - the plugins run without them):
+Small utilities that pair with the plugins (no runtime dependency - the plugins run without them):
 
 - **[tools/state-toggle](tools/state-toggle)** - atomic boolean toggle in `state/state.json`; the backend behind the vision-guard / peak-banner / auto-grant menu checkboxes.
 - **[tools/plugin-manager](tools/plugin-manager)** - enable/disable plugins without hand-moving files. OpenCode auto-loads everything in `plugins/` and has no native manager; this one moves local plugins to `plugins-disabled/` and comments npm entries out of `opencode.jsonc`. `plugin-manager list` to inspect.
@@ -213,7 +213,14 @@ Small Python utilities that pair with the plugins (no runtime dependency - the p
 - **[tools/untrack-pycache.sh](tools/untrack-pycache.sh)** - untrack stray __pycache__/.pyc from a repo and push; --all sweeps every repo.
 - **[tools/godot-cache-purge.sh](tools/godot-cache-purge.sh)** - strip archive paths from Godot editor caches after snapshot moves (.gdignore does not cover direct loads) and rebuild the class cache.
 - **[tools/gd-sweep.sh](tools/gd-sweep.sh)** - GDScript trap scanner for Godot projects: Godot-3 keywords, float literal equality, `randi() %` modulo bias, string `get_node` paths, `_process` vs `_physics_process`, unchecked `connect`, `get_texture().get_size()` capture normalization (macOS disagrees with `get_image()`), and load-time `OS.get_cmdline_user_args` reads (flags frozen before `--` args parse). Standalone by design; if the project also runs the outline_dump addon, sample findings are attributed to their enclosing symbol via the generated `outline.md` (optional enrichment, never a dependency). Born on a 53k-line game.
-- **[tools/notifier-config](tools/notifier-config)** - atomic editor for the [@mohak34/opencode-notifier](https://www.npmjs.com/package/@mohak34/opencode-notifier) config (`notifier-config volume quiet`, `notifier-config tone question alt`) - the backend for a Notifier menu. Its crash-safe `tmp + os.replace` write means a mid-write kill can never corrupt the notifier\x27s config.
+- **[tools/notifier-config](tools/notifier-config)** - atomic editor for the [@mohak34/opencode-notifier](https://www.npmjs.com/package/@mohak34/opencode-notifier) config (`notifier-config volume quiet`, `notifier-config tone question alt`) - the backend for a Notifier menu. Its crash-safe `tmp + os.replace` write means a mid-write kill can never corrupt the notifier's config.
+
+Desktop-app update/patch tooling (pair with [desktop-patch/](desktop-patch/)):
+
+- **[tools/oc-update-118](tools/oc-update-118)** - manual desktop-app updater for when the in-app "Restart now" silently fails on a patched bundle: `checkzip` (sha512 + bundled version against update-info.json), `apply` (staged swap, old bundle preserved via rename for instant rollback, refuses while any OpenCode process is alive), `rollback`, `verify` (post-update battery: versions, DB migrations, plugin errors in the log). Never quits or kills the app itself.
+- **[tools/oc-post-update](tools/oc-post-update)** - runs all four desktop patchers fail-fast in one command after an app update; stops at the first anchor drift so a bad port never ships half-applied.
+- **[tools/oc-clear-cache](tools/oc-clear-cache)** - wipes the app's regenerable renderer caches (Cache/Code Cache/GPUCache/DawnCache) for a fresh-asset launch; refuses to run while the app is up.
+- **[tools/badge-toggle](tools/badge-toggle)** - flip a model-row badge family (`ctx|img|cost`) in one call: writes `state.json` (the Plugins-menu checkbox backend) and re-runs the oc-ui badge patch.
 ## gate
 
 [gate.ts](gate.ts) is the offload hub: everything mechanical runs here so the
@@ -257,14 +264,19 @@ takes a rolling backup first. Manual trim/strip CLI included. See
 
 ## desktop-patch: control the desktop app itself
 
-[desktop-patch/](desktop-patch/) holds an idempotent patcher for the
-OpenCode **desktop app** (macOS): model-picker sizing + row info badges,
+[desktop-patch/](desktop-patch/) holds idempotent patchers for the
+OpenCode **desktop app** (macOS, verified on 1.18.34): model-picker sizing
++ row info badges (now in both the model list and the picker menu),
 colored session titles (renders this repo's session-size tags in color),
 a native **Plugins** menu built from a JSON registry - the control
-surface for this whole plugin set - a session-menu **Trim & clean**
-submenu that writes the janitor's trim markers from the UI, and an
+surface for this whole plugin set - flat session-menu **Trim & clean**
+items that write the janitor's trim markers from the UI, and an
 **edit-candidates** patch that turns the edit tool's dead-end errors into
-line-numbered candidate hints. See
+line-numbered candidate hints. Signed with a stable identity so the
+keychain stops re-prompting, and CSS publishes content-hashed so the
+`oc://` cache can't serve stale styles. After any app update:
+[tools/oc-post-update](tools/oc-post-update) re-applies everything in one
+command. See
 [desktop-patch/README.md](desktop-patch/README.md).
 
 ## Related work

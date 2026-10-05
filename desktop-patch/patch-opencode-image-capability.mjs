@@ -78,9 +78,10 @@ print("ok")
 }
 
 function resign() {
-  sh("codesign", ["--force", "--deep", "--sign", "-", APP]);
+  // Stable identity (matches desktop-ui patcher): ad-hoc breaks keychain ACLs.
+  sh("codesign", ["--force", "--deep", "--sign", process.env.OC_SIGN_IDENTITY || "OpenCode Local Notifier", APP]);
   sh("codesign", ["--verify", "--deep", APP]);
-  console.log("codesign: ad-hoc re-signed + verified OK");
+  console.log("codesign: re-signed with stable identity + verified OK");
 }
 
 function main() {

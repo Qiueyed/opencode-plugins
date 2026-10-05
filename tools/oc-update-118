@@ -1,0 +1,184 @@
+#!/bin/zsh
+# oc-update-118: apply the downloaded OpenCode desktop 1.18.34 update WITHOUT opencode running.
+#
+# The app's own "Restart now" updater button fails on this machine (patched bundle),
+# so this script performs the swap manually using the already-downloaded update from
+# the updater's pending cache. Run from a plain Terminal.app, NOT from opencode.
+#
+# Usage:
+#   oc-update-118 checkzip  -> verify the pending zip (checksum + bundled version). Safe anytime.
+#   oc-update-118 verify    -> post-update battery (versions, DB, plugin errors). Safe anytime.
+#   oc-update-118 apply     -> the swap. REFUSES to run while OpenCode is running. Never kills anything.
+#   oc-update-118 rollback  -> restore the previous bundle. Also refuses while OpenCode is running.
+#
+# Safety properties:
+#   - aborts if any OpenCode process is alive (it will NEVER quit/kill the app itself)
+#   - verifies zip sha512 against update-info.json before touching anything
+#   - old bundle is preserved via rename (instant rollback), never deleted
+#   - only deletes the staging dir it created itself in this run
+set -euo pipefail
+
+APP="/Applications/OpenCode.app"
+ZIP="$HOME/Library/Caches/@opencode-aidesktop-updater/pending/opencode-desktop-mac-arm64.zip"
+INFO="$HOME/Library/Caches/@opencode-aidesktop-updater/pending/update-info.json"
+STAGE="/Applications/.oc-update-stage"
+LOG="$HOME/.config/opencode/state/oc-update-118.log"
+EXPECTED_VERSION="1.18.34"
+
+log() { print -- "[$(date '+%Y-%m-%d %H:%M:%S')] $@" | tee -a "$LOG"; }
+die() { log "ABORT: $@"; print "\nABORT: $@" >&2; exit 1; }
+
+app_running() {
+  # pgrep -f proved unreliable here (slash patterns miss; without -l it prints
+  # only PIDs). Match the main binary line in ps output instead; the $ anchor
+  # ensures only the main binary counts (helper paths end with args).
+  /bin/ps ax -o command= 2>/dev/null | /usr/bin/grep -q "OpenCode.app/Contents/MacOS/OpenCode$"
+}
+
+require_quit() {
+  if app_running; then
+    die "OpenCode is currently RUNNING. Quit it first (Cmd+Q), then run this again. This script never kills the app."
+  fi
+}
+
+expected_sha() {
+  /usr/bin/python3 - "$INFO" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        print(json.load(f)["sha512"])
+except Exception:
+    pass
+PY
+}
+
+zip_sha() {
+  /usr/bin/openssl dgst -sha512 -binary "$ZIP" 2>/dev/null | /usr/bin/base64
+}
+
+zip_version() {
+  local tmp; tmp="$(/usr/bin/mktemp)"
+  /usr/bin/unzip -p "$ZIP" "OpenCode.app/Contents/Info.plist" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$tmp" 2>/dev/null
+  rm -f "$tmp"
+}
+
+cmd_checkzip() {
+  [[ -f "$ZIP" ]] || die "pending update zip not found at $ZIP (already applied? updater cache cleared?)"
+  local want have got
+  want="$(expected_sha)"
+  [[ -n "$want" ]] || die "could not read sha512 from update-info.json"
+  have="$(zip_sha)"
+  [[ "$have" == "$want" ]] || die "CHECKSUM MISMATCH: zip sha512 does not match update-info.json (want=$want have=$have)"
+  log "checkzip: checksum OK"
+  got="$(zip_version)"
+  [[ "$got" == "$EXPECTED_VERSION" ]] || die "zip contains version '$got', expected '$EXPECTED_VERSION'"
+  log "checkzip: bundled version is $got"
+  print "pending zip OK: checksum matches, version $got"
+}
+
+cmd_apply() {
+  local cur
+  cur="$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist" 2>/dev/null || print '?')"
+  if [[ "$cur" == "$EXPECTED_VERSION" ]]; then
+    print "OpenCode $EXPECTED_VERSION is already installed at $APP. Nothing to do."
+    return 0
+  fi
+  require_quit
+  [[ -d "$APP" ]] || die "$APP not found (moved or renamed?)"
+  [[ ! -e "$STAGE" ]] || die "staging dir $STAGE already exists from an earlier run; inspect or remove it first"
+
+  cmd_checkzip
+
+  local bak
+  bak="/Applications/OpenCode.app.1162-bak"
+  if [[ -e "$bak" ]]; then
+    bak="/Applications/OpenCode.app.1162-bak-$(date '+%Y%m%d-%H%M%S')"
+  fi
+
+  log "apply: staging update..."
+  /usr/bin/unzip -q "$ZIP" -d "$STAGE"
+  [[ -d "$STAGE/OpenCode.app" ]] || { APP_MISSING=1; die "staged bundle missing OpenCode.app"; }
+  local staged_ver
+  staged_ver="$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$STAGE/OpenCode.app/Contents/Info.plist" 2>/dev/null || print "?")"
+  [[ "$staged_ver" == "$EXPECTED_VERSION" ]] || die "staged bundle version '$staged_ver' != $EXPECTED_VERSION"
+
+  log "apply: preserving current bundle as $bak (rename, not delete)"
+  /bin/mv "$APP" "$bak"
+
+  if ! /bin/mv "$STAGE/OpenCode.app" "$APP" 2>/dev/null; then
+    log "apply: mv failed, falling back to ditto copy"
+    /usr/bin/ditto "$STAGE/OpenCode.app" "$APP"
+  fi
+  /bin/rm -rf "$STAGE"   # removes ONLY the staging dir this script created above
+
+  /usr/bin/xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+
+  local cs
+  if /usr/bin/codesign --verify --deep --strict "$APP" >/dev/null 2>&1; then
+    cs="OK"
+  else
+    cs="WARN: signature verification failed (see: codesign --verify --deep --strict $APP)"
+  fi
+  log "apply: installed $EXPECTED_VERSION (old bundle at $bak); codesign: $cs"
+
+  print ""
+  print "SUCCESS: OpenCode $EXPECTED_VERSION installed at $APP"
+  print "Previous bundle preserved at: $bak"
+  print ""
+  print "NEXT: launch OpenCode, then run:  ~/.config/opencode/tools/oc-update-118 verify"
+  print "ROLLBACK (if needed): quit app, then run:  ~/.config/opencode/tools/oc-update-118 rollback"
+}
+
+cmd_rollback() {
+  require_quit
+  local bak="/Applications/OpenCode.app.1162-bak"
+  [[ -d "$bak" ]] || die "no backup bundle at $bak (already rolled back, or apply never ran)"
+  [[ -d "$APP" ]] || die "$APP missing unexpectedly; restore manually from $bak"
+  local side="/Applications/OpenCode.app.removed-$(date '+%Y%m%d-%H%M%S')"
+  log "rollback: moving current bundle to $side, restoring $bak"
+  /bin/mv "$APP" "$side"
+  /bin/mv "$bak" "$APP"
+  print "ROLLED BACK to $(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist" 2>/dev/null || print '?')."
+  print "The update bundle was kept at: $side"
+}
+
+cmd_verify() {
+  print "== OpenCode desktop verify battery =="
+  print "version:    $(defaults read "$APP/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || print '?')"
+  print "asar date:  $(ls -la "$APP/Contents/Resources/app.asar" 2>/dev/null | awk '{print $6,$7,$8}')"
+  local newest
+  newest="$(ls -t "$HOME/.local/share/opencode/log/" 2>/dev/null | head -1)"
+  print "newest log: ${newest:-none}"
+  if [[ -n "$newest" ]]; then
+    local errs
+    errs="$(grep -ci "plugin" "$HOME/.local/share/opencode/log/$newest" 2>/dev/null || true)"
+    [[ -n "$errs" ]] || errs=0
+    print "plugin lines in newest log: $errs (expect 0 = clean load)"
+  fi
+  print "db migrations: $(sqlite3 -readonly "$HOME/.local/share/opencode/opencode.db" "SELECT COUNT(*) FROM __drizzle_migrations;" 2>/dev/null || print '?')  (pre-update baseline: 21)"
+  print "sessions:      $(sqlite3 -readonly "$HOME/.local/share/opencode/opencode.db" "SELECT COUNT(*) FROM session;" 2>/dev/null || print '?')  (baseline: 66)"
+  local notif
+  notif="$(/usr/bin/python3 -c "
+import json
+try:
+    d=json.load(open('$HOME/.cache/opencode/packages/@mohak34/opencode-notifier@latest/node_modules/@mohak34/opencode-notifier/package.json'))
+    print(d.get('version'))
+except Exception:
+    print('?')" 2>/dev/null)"
+  print "notifier pkg:  $notif  (baseline: 0.4.0; if it jumped to 0.7.0 and notifications misbehave, pin @0.4.0)"
+  print "pending zip:   $( [[ -f "$ZIP" ]] && print 'still present (updater copy unused)' || print 'gone' )"
+  print "backups:       plugins=$( [[ -d "$HOME/.config/opencode/plugins.bak-pre118" ]] && print yes || print NO) db=$( [[ -f "$HOME/.local/share/opencode/opencode.db.pre118-backup" ]] && print yes || print NO)"
+  print ""
+  print "Patch layer reminder: app-bundle patches (oc-ui badges/sizes, edit-candidates,"
+  print "image-capability, session-menu) do NOT survive the swap. Re-apply one per restart"
+  print "via ~/.config/opencode/patches/ once basic health is confirmed."
+}
+
+case "${1:-}" in
+  checkzip) cmd_checkzip ;;
+  apply)    cmd_apply    ;;
+  verify)   cmd_verify   ;;
+  rollback) cmd_rollback ;;
+  *) print "usage: oc-update-118 {checkzip|apply|verify|rollback}" >&2; exit 2 ;;
+esac

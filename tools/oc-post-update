@@ -1,0 +1,21 @@
+#!/bin/zsh
+# oc-post-update: run ALL app-bundle patchers after an OpenCode desktop update.
+# Fail-fast: stops at the first patcher that refuses (anchor drift) so a bad
+# port never ships half-applied. Run AFTER applying an update via
+# oc-update-118, then quit + relaunch the app, then run oc-update-118 verify.
+set -uo pipefail
+P="$HOME/.config/opencode/patches"
+failed=0
+for f in patch-opencode-desktop-ui.mjs patch-opencode-session-menu.mjs patch-opencode-edit-candidates.mjs patch-opencode-image-capability.mjs; do
+  print "── $f"
+  if ! node "$P/$f" 2>&1 | tail -6; then
+    print "FAILED: $f - fix or --revert before continuing. Remaining patchers skipped."
+    failed=1
+    break
+  fi
+done
+if (( failed )); then
+  print "\nRESULT: INCOMPLETE - see above. The app bundle holds every patcher that ran before the failure."
+  exit 1
+fi
+print "\nRESULT: all 4 patchers applied. Quit + reopen OpenCode, then: oc-update-118 verify"
