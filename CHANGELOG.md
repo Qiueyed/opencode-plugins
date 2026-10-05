@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-10-05 (later still v)
+- **Plugins menu: radio-group contracts + Model menu size (tick) presets**: new registry shape `{label, command, stateValueFile, value}` - checked iff the value file's content equals `value`; contiguous radio entries auto-group in Electron, so a click natively moves the check to the clicked entry and the command updates the file (restart reconciles the running renderer). The dead `Model popover` 20x28..36x48 presets were retired: they resize the `w-72 h-80` quick-popover container, which the live-DOM canary had already proved absent from this flow - the real picker is the MenuV2 dropdown whose width was hardcoded 40rem. Replacement: **Model menu size** radio presets (Small 32 / Medium 40 / Large 48) driving a config `menuWidthRem` (`.oc-model-menu` width) via new `./oc-ui menuwidth <rem>` (writes `state/ui-menuwidth.txt`, the tick backend). Engine shipped in the desktop-ui patcher's injected block; full battery green (anchors, probes, syntax gate, integrity re-stamp + MATCH, marker pairing in the shipped bundle, class-sweep ALL CLEAN).
+
 ## 2026-10-05 (later still iv)
 - **notify.ts: mid-quit race no longer fires a misattributed banner**: when the app is gone by the time the banner runs (quit in progress), bare `osascript` attributes the notification to Script Editor - worse than no banner, and the announced event is moot once the app is gone. The fallback now skips instead.
 

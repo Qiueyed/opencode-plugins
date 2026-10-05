@@ -107,6 +107,8 @@ function readUiConfig() {
   const h = num("--popover-h");
   if (w) cfg.popoverWidthRem = w;
   if (h) cfg.popoverHeightRem = h;
+  const mw = num("--menu-w");
+  if (mw) cfg.menuWidthRem = mw;
   const bc = bool("--badge-ctx");
   const bi = bool("--badge-img");
   const bco = bool("--badge-cost");
@@ -118,6 +120,9 @@ function readUiConfig() {
 const CFG = readUiConfig();
 const POPOVER_WIDTH_REM = CFG.popoverWidthRem;
 const POPOVER_HEIGHT_REM = CFG.popoverHeightRem;
+// v4.6: the LIVE model dropdown width (the old popover WxH presets target a
+// dead container - see WORKLOG 2026-10-05). Config-driven, default 40rem.
+const MENU_WIDTH_REM = CFG.menuWidthRem || 40;
 
 // Session-size tag colors (see patchTitleJs). Tweak and re-run.
 const SIZE_RED_MB = 300; // tag text turns red at/above this many MB
@@ -207,7 +212,7 @@ function cssBlock() {
    44rem wide; the inner row scroller caps itself at max-h-[220px], raised
    here. (Canary tints removed 2026-10-05 after identification.) */
 .oc-model-menu {
-  width: 40rem !important;
+  width: ${MENU_WIDTH_REM}rem !important;
   max-height: min(70vh, 50rem) !important;
 }
 .oc-model-menu [class*="max-h-[220px]"] {
@@ -726,6 +731,18 @@ function ocMenuItems(entries, MI) {
       } else if (typeof e.stateFile === "string" && e.stateFile) {
         opts.type = "checkbox";
         opts.checked = ocFileExists(e.stateFile);
+      } else if (typeof e.stateValueFile === "string" && e.stateValueFile) {
+        // v4.6 radio group: checked iff the value file's content equals this
+        // entry's "value". Contiguous radio items auto-group in Electron, so
+        // a click natively moves the check to the clicked entry (the file is
+        // updated by the command; restart reconciles the running renderer).
+        opts.type = "radio";
+        try {
+          const v = String(spawnSync("/bin/cat", [e.stateValueFile]).stdout || "").trim();
+          opts.checked = v === String(e.value);
+        } catch {
+          opts.checked = false;
+        }
       }
       out.push(new MI(opts));
     } catch {}
@@ -828,7 +845,7 @@ function seedRegistry() {
   const RESTART = "Applied. Quit OpenCode (Cmd+Q) and reopen to load it.";
   const seed = {
     $comment:
-      "OpenCode Plugins menu registry. Any plugin can append items. Restart the app after registry edits. Entry shapes: {label, command}; {label, command, stateFile} checkbox; {label, command, confirm} info dialog after click; {label, submenu:[...]} nested; {label, command, requireFile} grayed when file missing; {separator:true}.",
+      "OpenCode Plugins menu registry. Any plugin can append items. Restart the app after registry edits. Entry shapes: {label, command}; {label, command, stateFile} checkbox; {label, command, confirm} info dialog after click; {label, submenu:[...]} nested; {label, command, requireFile} grayed when file missing; {label, command, stateValueFile, value} radio group (checked iff the value file content equals value; siblings auto-group); {separator:true}.",
     items: [
       {
         label: "Gate: disabled",
@@ -1003,7 +1020,7 @@ function applyModelMenu(file, label) {
     fs.rmSync(syntaxProbe, { force: true });
   }
   fs.writeFileSync(file, js);
-  console.log(`  ${label}: model menu classed oc-model-menu (40rem) + row badges wired; node --check OK`);
+  console.log(`  ${label}: model menu classed oc-model-menu (${MENU_WIDTH_REM}rem) + row badges wired; node --check OK`);
 }
 
 function patchTitleJs(workdir) {

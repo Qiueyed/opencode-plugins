@@ -13,7 +13,7 @@ tags, and the Plugins menu is the control surface for the whole plugin set.
 | # | Feature | Detail |
 |---|---|---|
 | 1 | Model-picker rows stop clipping | name spans shrink -> real ellipsis, badges stay visible |
-| 2 | Model-picker enlarged | the 1.18.34 composer picker is the `ModelSelectorPopoverV2View` MenuV2 dropdown - patched to a 40rem-wide menu with raised inner scroll (`.oc-model-menu`); the three other model-picker containers in the bundle are dead code in this flow and stay patched harmlessly |
+| 2 | Model-picker sized (config-driven) | the 1.18.34 composer picker is the `ModelSelectorPopoverV2View` MenuV2 dropdown - width is config-driven (default 40rem, `.oc-model-menu`), changed live from the Plugins menu's **Model menu size** radio presets (Small 32 / Medium 40 / Large 48) or `./oc-ui menuwidth <rem>`; the old 20x28..36x48 popover presets targeted a dead container on 1.18.34 and were retired. The three other model-picker containers in the bundle are dead code in this flow and stay patched harmlessly |
 | 3 | Colored session titles | a leading size tag (`428M · Title`) renders red >= 300MB / amber >= 100MB / green; pairs with the session-size plugin, harmless without it |
 | 4 | Model row info badges | context window (`200K`/`1M`), `IMG` when the model accepts image input, `$in/M` input price - wired into BOTH the ModelList rows and the picker menu rows; toggled from the Plugins menu as checkbox entries (`tools/badge-toggle` is the CLI backend). Ollama models show no chips: the provider reports no context/cost metadata |
 | 8 | **Image-capability default** | `patch-opencode-image-capability.mjs` flips the fallback capability literal (text-only) to image-capable, so models you define manually in opencode.jsonc - custom providers with no models.dev entry - are not pre-flight blocked from sending images. Catalog-backed models keep their real capabilities; audio/video/pdf stay gated; a truly non-vision model surfaces its own provider error instead. Finds the chunk by anchor (survives version bumps); shares the pristine backup and --revert with the other patches |
@@ -67,9 +67,11 @@ node patch-opencode-desktop-ui.mjs --revert
 
 ```sh
 ./oc-ui status              # current size/badges config
-./oc-ui width 28            # popover width in rem
-./oc-ui height 40           # popover height in rem
-./oc-ui preset s|m|l|xl     # s=20x28 m=24x32 l=30x40 xl=36x48
+./oc-ui width 28            # popover width in rem (legacy - dead container on 1.18.34)
+./oc-ui height 40           # popover height in rem (legacy)
+./oc-ui size <W> <H>        # both (legacy)
+./oc-ui preset s|m|l|xl     # legacy popover presets (dead on 1.18.34)
+./oc-ui menuwidth <rem>     # the LIVE model dropdown width (default 40)
 ./oc-ui badge img off       # toggle row badges: ctx | img | cost
 ./oc-ui revert              # pristine app
 ```
@@ -97,6 +99,9 @@ app after editing). Entry shapes:
     { "label": "Popover: Large", "command": "./oc-ui preset l", "confirm": "Applied. Restart OpenCode to load it." },
     // grayed out with "(tool missing)" when the file does not exist
     { "label": "Trim sessions", "command": "./trim --keep 15", "requireFile": "/path/to/trim" },
+    // radio group: checked iff the value file's content equals "value";
+    // contiguous radio entries auto-group, so a click moves the check natively
+    { "label": "Medium 40rem (default)", "command": "./oc-ui menuwidth 40", "stateValueFile": "~/.config/opencode/state/ui-menuwidth.txt", "value": "40" },
     // expandable submenu (recursive)
     { "label": "More", "submenu": [ { "label": "Child", "command": "..." } ] },
     { "separator": true }

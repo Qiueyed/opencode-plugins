@@ -5,7 +5,12 @@
 #   oc-ui width <rem>             set popover width  (e.g. oc-ui width 28)
 #   oc-ui height <rem>            set popover height (e.g. oc-ui height 40)
 #   oc-ui size <W> <H>            set both
-#   oc-ui preset <s|m|l|xl>       s=20x28 m=24x32 l=30x40 xl=36x48
+#   oc-ui preset <s|m|l|xl>       s=20x28 m=24x32 l=30x40 xl=36x48 (LEGACY:
+#                                 targets the dead quick-popover container on
+#                                 1.18.34 - use menuwidth instead)
+#   oc-ui menuwidth <rem>         the LIVE model dropdown width (.oc-model-menu;
+#                                 writes the radio-group value file for the
+#                                 Plugins > Model menu size ticks)
 #   oc-ui badge <ctx|img|cost> <on|off>
 #   oc-ui revert                  back to the pristine (unpatched) app
 #
@@ -59,15 +64,16 @@ esc() { # AppleScript string escaping for the notification args
 }
 
 notify() { # notify <title> <msg>
-  set -- "$(esc "$1")" "$(esc "$2")"
   if /usr/bin/pgrep -qf "OpenCode.app" 2>/dev/null; then
-    # attribute the banner to OpenCode itself instead of "Script Editor"
-    # (safe: the app is already running, so this cannot auto-launch it)
-    /usr/bin/osascript -e "tell application id \"ai.opencode.desktop\" to display notification \"$2\" with title \"$1\"" 2>/dev/null ||
-      /usr/bin/osascript -e "display notification \"$2\" with title \"$1\"" 2>/dev/null || true
+    # app running: osascript banners attribute to Script Editor NO MATTER HOW
+    # they are sent (tell-target included - A/B-proven 2026-10-05), and the
+    # Plugins menu already confirms in-app. No banner.
+    :
   else
-    # app not running: targeting it would auto-launch it; use plain banner
-    /usr/bin/osascript -e "display notification \"$2\" with title \"$1\"" 2>/dev/null || true
+    # app not running: targeting it would auto-launch it; plain osascript
+    # banners show as "Script Editor", so label them honestly instead
+    set -- "$(esc "$1")" "$(esc "$2")"
+    /usr/bin/osascript -e "display notification \"$2\" with title \"$1 (app closed)\"" 2>/dev/null || true
   fi
 }
 
@@ -88,10 +94,11 @@ case "$cmd" in
     echo "config file: $CFG"
     echo "  popoverWidthRem:  $(cfg_field popoverWidthRem)"
     echo "  popoverHeightRem: $(cfg_field popoverHeightRem)"
+    echo "  menuWidthRem:     $(cfg_field menuWidthRem)  (live model dropdown; legacy popover WxH targets a dead container on 1.18.34)"
     echo "  badgeContext:     $(cfg_field badgeContext)"
     echo "  badgeImage:       $(cfg_field badgeImage)"
     echo "  badgeCost:        $(cfg_field badgeCost)"
-    echo "presets: s=20x28  m=24x32  l=30x40  xl=36x48"
+    echo "menuwidth presets: s=32  m=40 (default)  l=48"
     ;;
   width)    num_or_die width "${2:-}";    set_field popoverWidthRem "$2";  apply "popover width ${2}rem" ;;
   height)   num_or_die height "${2:-}";   set_field popoverHeightRem "$2"; apply "popover height ${2}rem" ;;
@@ -106,6 +113,13 @@ case "$cmd" in
     esac
     apply "preset $2 ($(cfg_field popoverWidthRem)x$(cfg_field popoverHeightRem))rem"
     ;;
+  menuwidth) # v4.6 live knob: .oc-model-menu width + radio-group value file
+    num_or_die menuwidth "${2:-}"
+    set_field menuWidthRem "$2"
+    VF="$HOME/.config/opencode/state/ui-menuwidth.txt"
+    mkdir -p "$HOME/.config/opencode/state"
+    printf '%s' "$2" > "$VF"
+    apply "model menu width ${2}rem" ;;
   badge)
     case "${2:-}" in
       ctx)  key=badgeContext ;;
