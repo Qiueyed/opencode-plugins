@@ -216,6 +216,20 @@ export const Notify: Plugin = async ({ client, directory }) => {
       child.on("error", () => {})
     } catch {}
   }
+  // In-app toast (same client.tui.showToast pattern as gate.ts/caffeinate):
+  // the visible, informative channel for peak entry now that banners are
+  // impossible for scripts. Failure logs a warning, never breaks the watcher.
+  const toast = async (title: string, message: string) => {
+    try {
+      await client.tui.showToast({ body: { title, message, variant: "info" } })
+    } catch (e) {
+      try {
+        await client.app.log({
+          body: { service: "notify-peak", level: "warn", message: `toast failed: ${String(e)}` },
+        })
+      } catch {}
+    }
+  }
 
   const lastPeakKey: Record<string, string> = {}
   // Occurrence key: for midnight-crossing windows the late-night hours
@@ -261,6 +275,10 @@ export const Notify: Plugin = async ({ client, directory }) => {
         continue
       }
       lastPeakKey[p.id] = key
+      // Sound + in-app toast: the old osascript banner is gone (scripts cannot
+      // carry the OpenCode identity on this macOS), and a bare Tink loses the
+      // entire rate message - the toast carries it instead (2026-10-05).
+      void toast(`${p.label}: peak hours`, p.msg)
       notify(`${p.label}: peak hours`, p.msg, p.sound)
     }
   }

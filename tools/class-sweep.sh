@@ -6,7 +6,8 @@
 #   class-sweep.sh --project <dir>      universal checks for any managed project:
 #                                       .bak clutter, contracts.json validation
 #                                       (mustExist/docs refs, mustContain pattern
-#                                       contracts, installedTwin drift), counter
+#                                       contracts, installedTwin drift, pair
+#                                       contracts, storage-key twins), counter
 #                                       drift (opt-in ledger), scene integrity,
 #                                       userscript checks (*.user.js: syntax,
 #                                       metadata, canary-proven quote scan,
@@ -14,6 +15,13 @@
 #                                       version sync vs WORKLOG) + delegation
 #                                       to the project's own tools/class-sweep.sh
 #                                       if it ships one.
+#
+#   TWIN POLICY: the repo copy (opencode-plugins/tools/) is the SOURCE OF
+#   TRUTH; ~/.config/opencode/tools/class-sweep.sh is a deployed twin. Edit
+#   the repo copy, then `cp` repo -> config and diff to prove parity. The
+#   reverse (patching the config copy) shipped a stale checker for days
+#   (2026-10-05 userscript project: config copy demanded a Godot-only
+#   counters convention the repo had already made opt-in).
 #
 #   SCOPE: all checks are STRUCTURAL. A script can pass every check and still
 #   ship a dead feature (real case: CSS + wiring existed but the toggle was
@@ -96,6 +104,59 @@ if twin_name:
         print("ok   twin: installed copy identical to project copy")
     else:
         bad += 1; print("FAIL twin drift: installed copy differs from project copy (redeploy)")
+# pair contracts: if a project file DEFINES a pattern, it must also USE the
+# paired pattern. Encodes cross-site lessons as contract data:
+#   - synthetic click dispatch must ship an effect verification (a success
+#     log at dispatch proves nothing - verification-theater class, 2026-10-05
+#     userscript review: fireClick without verifySkipClick logged success
+#     while Safari rejected the untrusted event)
+#   - a scroll-activity tracker must ignore the file's own programmatic
+#     scrolls (self-triggering event loops: the own scrollTo trips the
+#     quiet-guard and dead-codes the restore path)
+for p in c.get("pairs", []):
+    d, r = p.get("define", ""), p.get("require", "")
+    what = p.get("what", "pair contract")
+    if not d or not r:
+        bad += 1; print(f"FAIL pair contract malformed (need define+require): {p}"); continue
+    scope = [f for f in c.get("mustExist", []) if f.endswith(".user.js")]
+    hit = False
+    for f in scope:
+        try:
+            t = open(f, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        if d in t:
+            hit = True
+            if r not in t:
+                bad += 1; print(f"FAIL pair contract: {f} defines {d!r} but never uses {r!r} ({what})")
+    if scope and not hit:
+        print(f"note pair contract: {d!r} not defined anywhere ({what})")
+if c.get("pairs"):
+    print(f"ok   pair contracts: {len(c['pairs'])} validated")
+# storage-key twins: every sessionStorage.getItem must have a matching
+# setItem and vice versa (both-sides-of-every-pair class: a persisted flag
+# nobody reads is dead state; a read nobody writes is silent data loss -
+# found guarding ytsCompliance/ytsLogs in the userscript project).
+st_bad = []
+st_files = [f for f in c.get("mustExist", []) if f.endswith(".user.js")]
+for f in st_files:
+    try:
+        t = open(f, encoding="utf-8", errors="replace").read()
+    except OSError:
+        continue
+    gets = set(re.findall(r"sessionStorage\.getItem\(\s*['\"]([A-Za-z0-9_.-]+)['\"]", t))
+    sets = set(re.findall(r"sessionStorage\.setItem\(\s*['\"]([A-Za-z0-9_.-]+)['\"]", t))
+    for k in sorted(gets - sets):
+        st_bad.append(f"{f}: sessionStorage '{k}' read but never written")
+    for k in sorted(sets - gets):
+        st_bad.append(f"{f}: sessionStorage '{k}' written but never read")
+if st_bad:
+    bad += len(st_bad)
+    print("FAIL storage-key twins:")
+    for s in st_bad:
+        print("     ", s)
+elif st_files:
+    print("ok   storage-key twins")
 if bad:
     sys.exit(1)
 PY
