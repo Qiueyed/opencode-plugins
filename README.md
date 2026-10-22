@@ -271,7 +271,8 @@ takes a rolling backup first. Manual trim/strip CLI included. See
 ## desktop-patch: control the desktop app itself
 
 [desktop-patch/](desktop-patch/) holds idempotent patchers for the
-OpenCode **desktop app** (macOS, verified on 1.18.34): model-picker sizing
+OpenCode **desktop app** (macOS, verified on 1.19.3 - all four patchers
+survived the 1.18.34 -> 1.19.3 jump unmodified): model-picker sizing
 + row info badges (now in both the model list and the picker menu),
 colored session titles (renders this repo's session-size tags in color),
 a native **Plugins** menu built from a JSON registry - the control

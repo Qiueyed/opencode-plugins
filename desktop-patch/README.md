@@ -47,8 +47,10 @@ assets, so in-place CSS edits stay invisible without the bust), and keeps
 one pristine `app.asar.original.bak`. Every step fails loud on drift - a
 failed run leaves your installed app untouched.
 
-**Verified on OpenCode 1.18.34** (ports survive from 1.16.2 via anchored
-patches). Anchors are version-specific on purpose:
+**Verified on OpenCode 1.19.3** - all four patchers applied unmodified from
+1.18.34 to 1.19.3 (the chunk-scanning anchors found their code after upstream
+moved it to `out/main/chunks/`; zero ports needed). Anchors are
+version-specific on purpose:
 if an app update changes the bundle, the script refuses and tells you -
 it will never guess.
 

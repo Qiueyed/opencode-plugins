@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-10-22
+- **1.19.3 applied clean: the whole stack survived the jump** - manual update via `oc-update-118` (now version-dynamic), all four patchers applied with ZERO anchor changes: upstream moved the edit-tool and capability code into `out/main/chunks/`, and the patchers' chunk-scanning anchor design found it without ports (a lesson in why they scan the tree instead of pinning paths - and a runbook rule now: anchor pre-flights grep the whole `out/`, never one chunk). Post-update state verified: marker pairing in the shipped bundle, integrity MATCH, zero plugin-log errors, DB migrations unchanged (21), notifier 0.4.0. Headline upstream change: 1.19 ends auto-updates (manual is now official - exactly this repo's workflow) and opens the OpenCode 2 bridge; V2 breaks the V1 plugin API, so `upgrade --major` / `/update` stay off-limits until plugins are ported.
+
 ## 2026-10-21
 - **oc-update-118: version-dynamic (the 1.19.3 unblocker)**: the tool refused every update after 1.18.34 - `EXPECTED_VERSION` was hardcoded from its birth migration, so the 1.19.3 pending zip aborted with "expected '1.18.34'" and the app silently never updated. Now: `checkzip` compares the zip version against the INSTALLED version (no-op and unreadable-version still abort; upgrades and downgrades report direction), `apply`'s no-op check is dynamic, the staged-bundle guard compares against the zip itself, backup bundles get honest names (`OpenCode.app.<oldver>-bak`), and `rollback` restores the mtime-NEWEST backup (alphabetical pick would have rolled 1.19.3 back to 1.16.2, not 1.18.34). Live-verified: `pending zip OK: checksum matches, 1.18.34 -> 1.19.3`.
 
