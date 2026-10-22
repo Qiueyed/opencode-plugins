@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-10-21
+- **oc-update-118: version-dynamic (the 1.19.3 unblocker)**: the tool refused every update after 1.18.34 - `EXPECTED_VERSION` was hardcoded from its birth migration, so the 1.19.3 pending zip aborted with "expected '1.18.34'" and the app silently never updated. Now: `checkzip` compares the zip version against the INSTALLED version (no-op and unreadable-version still abort; upgrades and downgrades report direction), `apply`'s no-op check is dynamic, the staged-bundle guard compares against the zip itself, backup bundles get honest names (`OpenCode.app.<oldver>-bak`), and `rollback` restores the mtime-NEWEST backup (alphabetical pick would have rolled 1.19.3 back to 1.16.2, not 1.18.34). Live-verified: `pending zip OK: checksum matches, 1.18.34 -> 1.19.3`.
+
 ## 2026-10-05 (later still ix)
 - **Update runbook shipped** ([docs/update-procedure.md](docs/update-procedure.md)): the phase-by-phase procedure the 1.16.2 -> 1.18.34 migration was missing - pre-flight baseline + safety net, quit/apply rules (never the in-app "Restart now" on a patched bundle; window close is not quit), fail-fast re-patch, anchor-drift re-derivation, post-restart verification (DB migration count gates rollback safety, plugin-API compat via boot-log errors, marker pairing in the shipped bundle), ghost-busting fallbacks, and the close-out (baselines updated, backups held until stable days then deleted only on explicit approval). Local canonical copy: the paired config dir's instructions/, pointed at from the desktop-update-layer sub-instruction.
 

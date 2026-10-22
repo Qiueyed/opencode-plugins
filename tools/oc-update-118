@@ -1,5 +1,8 @@
 #!/bin/zsh
-# oc-update-118: apply the downloaded OpenCode desktop 1.18.34 update WITHOUT opencode running.
+# oc-update-118: apply the downloaded OpenCode desktop update WITHOUT opencode running.
+# (Name is historical - born for 1.18.34; the tool is version-dynamic since
+# 2026-10-21: it applies whatever pending version the updater downloaded,
+# refusing only no-ops. The zip's sha512 must match update-info.json.)
 #
 # The app's own "Restart now" updater button fails on this machine (patched bundle),
 # so this script performs the swap manually using the already-downloaded update from
@@ -23,7 +26,10 @@ ZIP="$HOME/Library/Caches/@opencode-aidesktop-updater/pending/opencode-desktop-m
 INFO="$HOME/Library/Caches/@opencode-aidesktop-updater/pending/update-info.json"
 STAGE="/Applications/.oc-update-stage"
 LOG="$HOME/.config/opencode/state/oc-update-118.log"
-EXPECTED_VERSION="1.18.34"
+
+cur_version() {
+  /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist" 2>/dev/null || print '?'
+}
 
 log() { print -- "[$(date '+%Y-%m-%d %H:%M:%S')] $@" | tee -a "$LOG"; }
 die() { log "ABORT: $@"; print "\nABORT: $@" >&2; exit 1; }
@@ -75,16 +81,24 @@ cmd_checkzip() {
   [[ "$have" == "$want" ]] || die "CHECKSUM MISMATCH: zip sha512 does not match update-info.json (want=$want have=$have)"
   log "checkzip: checksum OK"
   got="$(zip_version)"
-  [[ "$got" == "$EXPECTED_VERSION" ]] || die "zip contains version '$got', expected '$EXPECTED_VERSION'"
-  log "checkzip: bundled version is $got"
-  print "pending zip OK: checksum matches, version $got"
+  [[ -n "$got" ]] || die "could not read bundled version from the zip"
+  local cur; cur="$(cur_version)"
+  if [[ "$got" == "$cur" ]]; then
+    die "zip version $got == installed version (no-op; nothing to update)"
+  fi
+  if [[ "$got" == "?" ]] || [[ "$cur" == "?" ]]; then
+    die "version unreadable (zip=$got installed=$cur) - inspect manually before applying"
+  fi
+  log "checkzip: bundled version is $got (installed: $cur)"
+  print "pending zip OK: checksum matches, $cur -> $got"
 }
 
 cmd_apply() {
-  local cur
-  cur="$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist" 2>/dev/null || print '?')"
-  if [[ "$cur" == "$EXPECTED_VERSION" ]]; then
-    print "OpenCode $EXPECTED_VERSION is already installed at $APP. Nothing to do."
+  local cur want_ver
+  cur="$(cur_version)"
+  want_ver="$(zip_version 2>/dev/null)"
+  if [[ -n "$want_ver" && "$cur" == "$want_ver" ]]; then
+    print "OpenCode $cur is already installed at $APP. Nothing to do."
     return 0
   fi
   require_quit
@@ -94,9 +108,9 @@ cmd_apply() {
   cmd_checkzip
 
   local bak
-  bak="/Applications/OpenCode.app.1162-bak"
+  bak="/Applications/OpenCode.app.${cur}-bak"
   if [[ -e "$bak" ]]; then
-    bak="/Applications/OpenCode.app.1162-bak-$(date '+%Y%m%d-%H%M%S')"
+    bak="/Applications/OpenCode.app.${cur}-bak-$(date '+%Y%m%d-%H%M%S')"
   fi
 
   log "apply: staging update..."
@@ -104,7 +118,7 @@ cmd_apply() {
   [[ -d "$STAGE/OpenCode.app" ]] || { die "staged bundle missing OpenCode.app"; }
   local staged_ver
   staged_ver="$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$STAGE/OpenCode.app/Contents/Info.plist" 2>/dev/null || print "?")"
-  [[ "$staged_ver" == "$EXPECTED_VERSION" ]] || die "staged bundle version '$staged_ver' != $EXPECTED_VERSION"
+  [[ "$staged_ver" == "$want_ver" ]] || die "staged bundle version '$staged_ver' != zip version '$want_ver'"
 
   log "apply: preserving current bundle as $bak (rename, not delete)"
   /bin/mv "$APP" "$bak"
@@ -123,10 +137,10 @@ cmd_apply() {
   else
     cs="WARN: signature verification failed (see: codesign --verify --deep --strict $APP)"
   fi
-  log "apply: installed $EXPECTED_VERSION (old bundle at $bak); codesign: $cs"
+  log "apply: installed $staged_ver from $cur (old bundle at $bak); codesign: $cs"
 
   print ""
-  print "SUCCESS: OpenCode $EXPECTED_VERSION installed at $APP"
+  print "SUCCESS: OpenCode $staged_ver installed at $APP"
   print "Previous bundle preserved at: $bak"
   print ""
   print "NEXT: launch OpenCode, then run:  ~/.config/opencode/tools/oc-update-118 verify"
@@ -135,8 +149,9 @@ cmd_apply() {
 
 cmd_rollback() {
   require_quit
-  local bak="/Applications/OpenCode.app.1162-bak"
-  [[ -d "$bak" ]] || die "no backup bundle at $bak (already rolled back, or apply never ran)"
+  local bak
+  bak="$(ls -dt /Applications/OpenCode.app.*-bak 2>/dev/null | head -1)"  # newest = the bundle the last apply replaced
+  [[ -n "$bak" ]] || die "no backup bundle matching /Applications/OpenCode.app.*-bak (already rolled back, or apply never ran)"
   [[ -d "$APP" ]] || die "$APP missing unexpectedly; restore manually from $bak"
   local side="/Applications/OpenCode.app.removed-$(date '+%Y%m%d-%H%M%S')"
   log "rollback: moving current bundle to $side, restoring $bak"
