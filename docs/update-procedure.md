@@ -126,6 +126,12 @@ Triage BEFORE blaming (or trusting) the update - three planes, check each:
 Also: "another set of logs downloaded" = the in-app updater re-downloading to
 `~/Library/Caches/@opencode-aidesktop-updater/pending/` - downloads are safe;
 only "Restart now" is dangerous on a patched bundle (rule 1).
+Anchor PRE-FLIGHTS must scan the WHOLE extracted tree (`grep -rlF` across
+`out/`), never a single chunk: 2026-10-22 false forecast - edit-candidates
+and image-capability were declared "drifted" because the checker greped only
+the renderer chunk, while 1.19.3 had moved that code to
+`out/main/chunks/node-*.js`; the patchers (which scan all chunks) had already
+applied cleanly. A one-file grep answers "is it here", never "is it gone".
 
 ## Happy-path quick version (all green, no drift)
 Cmd+Q -> `oc-update-118 checkzip` -> `oc-update-118 apply` ->
