@@ -2,7 +2,9 @@
 
 How to update the OpenCode desktop app on a patched bundle without losing your
 patches, your plugins, or a day to recovery. Born from a 1.16.2 -> 1.18.34
-migration that cost a full day before this existed.
+migration that cost a full day, hardened by a 2026-10-21 blocked-update
+episode (version-guard refusal + misread bug attribution - see rule 7 and the
+Troubleshooting section).
 
 Tools referenced (all in this repo / the paired config dir):
 `tools/oc-update-118` (checkzip/apply/verify/rollback), `tools/oc-post-update`
@@ -10,8 +12,9 @@ Tools referenced (all in this repo / the paired config dir):
 `tools/oc-asar-read.mjs` (anchor re-derivation), `tools/class-sweep.sh`.
 
 > verification. Reference material: instructions/desktop-update-layer.md.
-> Last full exercise: 2026-10-05 (1.16.2 -> 1.18.34 migration). Baselines below
-> are as of that date - UPDATE THEM in phase 4.
+> Last full exercise: 2026-10-05 (1.16.2 -> 1.18.34 migration); blocker class
+> recorded 2026-10-21 (version-guard refusal, see rule 7 + Troubleshooting).
+> Baselines below are as of 2026-10-05 - UPDATE THEM in phase 4.
 
 ## The rules (read once, obey always)
 1. NEVER use the in-app "Restart now" on a patched bundle - it silently fails;
@@ -31,6 +34,13 @@ Tools referenced (all in this repo / the paired config dir):
    several stable days pass.
 6. No rm of backups without explicit user approval. Old bundles/DB backups
    wait out a few stable days first.
+7. `checkzip` refusing the pending version is a TOOL bug, not an obstacle to
+   bypass: the updater tool is part of the update surface and must accept any
+   version the official updater downloaded (guard only against no-ops:
+   zip version == installed version). 2026-10-21: a hardcoded
+   EXPECTED_VERSION left over from the 1.18.34 migration silently blocked
+   1.19.3 for the user - "doesn't seem to be updating" with no error shown.
+   Fix the guard, never force the apply.
 
 ## Phase 0 - PRE-FLIGHT (app still running is fine)
 - [ ] Baseline: `oc-update-118 verify` - record version, DB migrations
@@ -49,12 +59,18 @@ Tools referenced (all in this repo / the paired config dir):
 ## Phase 1 - APPLY (app FULLY quit via Cmd+Q; run from plain Terminal, not opencode)
 - [ ] `pgrep` guard runs inside the tool, but eyeball: app is not running.
 - [ ] `tools/oc-update-118 checkzip` - sha512 + bundled version vs
-      update-info.json. Mismatch = STOP.
+      update-info.json. Mismatch = STOP. A VERSION refusal = rule 7 (fix the
+      tool's guard; it must compare zip vs INSTALLED version, aborting only
+      no-ops).
 - [ ] `tools/oc-update-118 apply` - staged swap, old bundle renamed aside
       (instant rollback), ElectronAsarIntegrity stamped by the patchers later.
 - [ ] Failure here: read the error, `tools/oc-update-118 rollback`, investigate
       before retrying. Never apply twice blindly (double-apply happened once -
       the tool is now idempotent, but treat any surprise as a stop).
+- [ ] Before ANY rollback: check what you would roll back TO -
+      `ls -dt /Applications/OpenCode.app.*-bak` (rollback restores the
+      mtime-newest backup; with multiple baks accumulated, confirm it is the
+      version you expect, not one from two migrations ago).
 
 ## Phase 2 - RE-PATCH (app still quit)
 - [ ] `tools/oc-post-update` - runs desktop-ui, session-menu, edit-candidates,
@@ -88,6 +104,28 @@ Tools referenced (all in this repo / the paired config dir):
 - [ ] STATUS.md + WORKLOG entry; push repo if tooling/docs changed.
 - [ ] Backups (old bundle, DB, plugins.bak) stay until several stable days
       pass, then deletion ONLY with explicit user approval of the exact list.
+
+## Troubleshooting: "it didn't update" / bugs during an update window
+Triage BEFORE blaming (or trusting) the update - three planes, check each:
+1. **Did anything actually apply?** `ls -la /Applications/OpenCode.app/Contents/Resources/app.asar` (mtime),
+   `defaults read /Applications/OpenCode.app/Contents/Info.plist CFBundleShortVersionString`,
+   `node tools/verify-integrity.mjs`. Untouched asar mtime + old version +
+   MATCH = NOTHING was applied - the "update" never happened, so nothing is
+   its fault. (2026-10-21: renderer fetch errors looked update-caused; the
+   bundle was untouched - the real blocker was checkzip refusing the version.)
+2. **Which plane is the error in?** Renderer-only stacks (`oc://renderer/assets/main-*.js`,
+   DevTools console) do NOT appear in the server log -
+   `~/.local/share/opencode/log/opencode.log` is the server plane. Session
+   message loading failures pair with `process session ... ERROR` server
+   lines; fetch failures inside a running renderer usually mean the internal
+   API/serving layer, not the network.
+3. **Date the errors.** `grep` the log for the error class and look at
+   timestamps: errors predating the update attempt are pre-existing bugs
+   (candidate for upstream fix in the NEW version - note them, update, then
+   re-check; only debug on the new bundle if they survive).
+Also: "another set of logs downloaded" = the in-app updater re-downloading to
+`~/Library/Caches/@opencode-aidesktop-updater/pending/` - downloads are safe;
+only "Restart now" is dangerous on a patched bundle (rule 1).
 
 ## Happy-path quick version (all green, no drift)
 Cmd+Q -> `oc-update-118 checkzip` -> `oc-update-118 apply` ->
