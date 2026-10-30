@@ -64,11 +64,8 @@ import { spawn, execFile } from "node:child_process"
 import {
   appendFileSync,
   closeSync,
-  existsSync,
   openSync,
-  readdirSync,
   readFileSync,
-  statSync,
   unlinkSync,
   writeSync,
 } from "node:fs"
@@ -121,9 +118,10 @@ const readState = (): Record<string, unknown> => {
 // instance (including ones spawned later in the day) sees the file and stays
 // quiet.
 const PEAK_KEY_FILE = homedir() + "/.config/opencode/state/.peak-banner-day"
-// Opt-in marker for the permission auto-grant: file present = ON. Default is
-// OFF because this approves every ask. Local installs that want it create the
-// marker; the desktop toggle contract is a menu checkbox writing this file.
+// Opt-in gate for the permission auto-grant: state/state.json key
+// `notifyAutogrant` (boolean, read live via readState; the Plugins menu
+// checkbox writes it through tools/state-toggle). Default is OFF because
+// this approves every ask.
 
 // Resting-user gate: if there has been no keyboard/mouse input for this
 // long, the user is away or asleep -> suppress the peak banner (and its

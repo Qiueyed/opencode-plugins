@@ -219,7 +219,7 @@ Desktop-app update/patch tooling (pair with [desktop-patch/](desktop-patch/)).
 **Updating the app? Follow the [update runbook](docs/update-procedure.md) - phase-by-phase checklist: backup, apply, re-patch, verify, rollback rules.**
 
 - **[tools/oc-update-118](tools/oc-update-118)** - manual desktop-app updater for when the in-app "Restart now" silently fails on a patched bundle: `checkzip` (sha512 + bundled version against update-info.json), `apply` (staged swap, old bundle preserved via rename for instant rollback, refuses while any OpenCode process is alive), `rollback`, `verify` (post-update battery: versions, DB migrations, plugin errors in the log). Never quits or kills the app itself.
-- **[tools/oc-post-update](tools/oc-post-update)** - runs all four desktop patchers fail-fast in one command after an app update; stops at the first anchor drift so a bad port never ships half-applied.
+- **[tools/oc-post-update](tools/oc-post-update)** - runs every desktop patcher fail-fast in one command after an app update (six as of the question-notify + background-throttle additions); stops at the first anchor drift so a bad port never ships half-applied.
 - **[tools/oc-clear-cache](tools/oc-clear-cache)** - wipes the app's regenerable renderer caches (Cache/Code Cache/GPUCache/DawnCache) for a fresh-asset launch; refuses to run while the app is up.
 - **[tools/badge-toggle](tools/badge-toggle)** - flip a model-row badge family (`ctx|img|cost`) in one call: writes `state.json` (the Plugins-menu checkbox backend) and re-runs the oc-ui badge patch. Runs under plain `/bin/sh` semantics (menu-safe), parses state output case-insensitively, invokes the zsh oc-ui explicitly.
 - **[tools/verify-integrity.mjs](tools/verify-integrity.mjs)** - post-patch integrity check for the app bundle (asar hash vs Info.plist, signature); takes an optional app-bundle path.
@@ -271,8 +271,9 @@ takes a rolling backup first. Manual trim/strip CLI included. See
 ## desktop-patch: control the desktop app itself
 
 [desktop-patch/](desktop-patch/) holds idempotent patchers for the
-OpenCode **desktop app** (macOS, verified on 1.19.3 - all four patchers
-survived the 1.18.34 -> 1.19.3 jump unmodified): model-picker sizing
+OpenCode **desktop app** (macOS, verified on 1.19.3 - the 1.18.34 -> 1.19.3
+jump needed zero anchor ports; the patcher set has since grown to six):
+model-picker sizing
 + row info badges (now in both the model list and the picker menu),
 colored session titles (renders this repo's session-size tags in color),
 a native **Plugins** menu built from a JSON registry - the control
