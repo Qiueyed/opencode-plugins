@@ -7,7 +7,7 @@
 # from a pipe - class-5 rule).
 set -u
 P="$HOME/.config/opencode/patches"
-for f in patch-opencode-desktop-ui.mjs patch-opencode-session-menu.mjs patch-opencode-edit-candidates.mjs patch-opencode-image-capability.mjs; do
+for f in patch-opencode-desktop-ui.mjs patch-opencode-session-menu.mjs patch-opencode-edit-candidates.mjs patch-opencode-image-capability.mjs patch-opencode-background-throttle.mjs patch-opencode-question-notify.mjs; do
   print "── $f"
   out="$(node "$P/$f" 2>&1)"
   st=$?
@@ -17,4 +17,4 @@ for f in patch-opencode-desktop-ui.mjs patch-opencode-session-menu.mjs patch-ope
     exit 1
   fi
 done
-print "\nRESULT: all 4 patchers applied. Quit + reopen OpenCode, then: oc-update-118 verify"
+print "\nRESULT: all 6 patchers applied. Quit + reopen OpenCode, then: oc-update-118 verify"

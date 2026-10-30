@@ -47,9 +47,13 @@ assets, so in-place CSS edits stay invisible without the bust), and keeps
 one pristine `app.asar.original.bak`. Every step fails loud on drift - a
 failed run leaves your installed app untouched.
 
-**Verified on OpenCode 1.19.3** - all four patchers applied unmodified from
+**Verified on OpenCode 1.19.3** - the four UI patchers applied unmodified from
 1.18.34 to 1.19.3 (the chunk-scanning anchors found their code after upstream
-moved it to `out/main/chunks/`; zero ports needed). Anchors are
+moved it to `out/main/chunks/`; zero ports needed). Two more patchers were
+born directly on 1.19.3 - `patch-opencode-background-throttle` (Chromium
+occluded-window throttling switches) and `patch-opencode-question-notify`
+(question asks get the response-end treatment: agent sound + focus-aware
+native banner) - so the runner now chains six. Anchors are
 version-specific on purpose:
 if an app update changes the bundle, the script refuses and tells you -
 it will never guess.
@@ -58,7 +62,7 @@ Re-apply after every app update (updates replace the whole bundle). Note:
 on a patched bundle the in-app "Restart now" update button can silently
 fail (the download sits in the updater's pending cache); the manual path
 is [tools/oc-update-118](../tools/oc-update-118) then
-[tools/oc-post-update](../tools/oc-post-update), which runs all four
+[tools/oc-post-update](../tools/oc-post-update), which runs all six
 patchers fail-fast in one command. Revert anytime:
 
 ```sh

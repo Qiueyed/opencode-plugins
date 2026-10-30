@@ -9,6 +9,17 @@
  *
  *   Provider peak-rate windows: one banner when a time-based pricing
  *   window begins (see PEAK_PROVIDERS).
+ *   Question asks: an early-October 2026 update killed the form-based
+ *   question event (form.created) that @mohak34/opencode-notifier listens
+ *   on (still true upstream at 1.1.1, checked 2026-10-24), so asks were
+ *   silent for ~3 weeks. This file
+ *   plays the notifier-configured question tone on question.asked (raw
+ *   name question.v2.asked also handled) plus ONE reminder after 10 min
+ *   while the ask is pending; cancelled on question.replied/rejected.
+ *   Cross-window dedup via per-id claim files in state/. Banners are
+ *   NOT posted here: the app's native Electron banner (ai.opencode.desktop)
+ *   owns those; osascript banners show as Script Editor, which the
+ *   September work explicitly engineered away.
  *   Permission auto-grant (OPT-IN, default OFF): the documented
  *   `permission.ask` plugin hook is not wired in desktop builds (no
  *   plugin.trigger("permission.ask") anywhere in app.asar), so instead
@@ -55,7 +66,9 @@ import {
   closeSync,
   existsSync,
   openSync,
+  readdirSync,
   readFileSync,
+  statSync,
   unlinkSync,
   writeSync,
 } from "node:fs"
@@ -120,6 +133,31 @@ const PEAK_KEY_FILE = homedir() + "/.config/opencode/state/.peak-banner-day"
 // (caffeinate.ts keeps it up during processing) but the user asleep -
 // "computer awake" cannot be the gate, user presence (HID idle) is.
 const IDLE_SUPPRESS_S = 10 * 60
+
+// Question asks: an early-October app update (before 2026-10-21) replaced
+// form-based questions with the native question module; the bus event is
+// `question.asked` (raw name `question.v2.asked`) and
+// @mohak34/opencode-notifier (0.4.0 installed, 1.1.1 latest as of
+// 2026-10-24) only listens for the dead `form.created` event, so question
+// asks have been silent since early October (user-corrected timeline).
+// notify.ts covers the gap: play the configured question tone
+// (sounds.question / volumes.question / events.question.sound from
+// opencode-notifier.json, same file the Plugins menu edits), then ONE
+// reminder after QUESTION_REMIND_MS if the ask is still unanswered.
+const NOTIFIER_CFG = homedir() + "/.config/opencode/opencode-notifier.json"
+const STATE_DIR = homedir() + "/.config/opencode/state"
+const QUESTION_CLAIM_PREFIX = PEAK_KEY_FILE + "-q-"
+const QUESTION_REMIND_MS = 10 * 60_000
+// Minimal stage trace: the question path used to leave zero observable
+// trace, which cost a full debug session (2026-10-30 outage: two native
+// banner sounds, no Tink, no way to tell load vs event vs claim vs audio).
+// One line per load / question event / reminder; 64KB self-rotate.
+const DBGQ = STATE_DIR + "/notify-debug.log"
+const dbgQ = (line: string) => {
+  try {
+    appendFileSync(DBGQ, `${new Date().toISOString()} ${line}\n`)
+  } catch {}
+}
 
 const dbg = (line: string) => {
   try {
@@ -207,14 +245,17 @@ export const Notify: Plugin = async ({ client, directory }) => {
   // and bare both showed Script Editor, exit 0). Scripts cannot carry the
   // OpenCode identity; only the app's native notifications can. So: play the
   // alert sound via afplay (identity-free) and post no banner at all.
-  const notify = (_subtitle: string, _message: string, sound: string) => {
+  const playSound = (path: string, vol: number) => {
     try {
-      const child = spawn("/usr/bin/afplay", [`/System/Library/Sounds/${sound}.aiff`], {
-        stdio: "ignore",
-      })
+      // afplay -v is linear volume, 1 = unity.
+      const args = vol === 1 ? [path] : ["-v", String(vol), path]
+      const child = spawn("/usr/bin/afplay", args, { stdio: "ignore" })
       child.unref()
       child.on("error", () => {})
     } catch {}
+  }
+  const notify = (_subtitle: string, _message: string, sound: string) => {
+    playSound(`/System/Library/Sounds/${sound}.aiff`, 1)
   }
   // In-app toast (same client.tui.showToast pattern as gate.ts/caffeinate):
   // the visible, informative channel for peak entry now that banners are
@@ -230,6 +271,80 @@ export const Notify: Plugin = async ({ client, directory }) => {
       } catch {}
     }
   }
+
+  // Question sound: full path + volume from the notifier config so the
+  // Plugins menu tone/volume picks apply here too. Read per event (cheap),
+  // so menu edits are live. Fails closed to the default Tink.
+  const questionSound = (): { path: string; vol: number } => {
+    try {
+      const cfg = JSON.parse(readFileSync(NOTIFIER_CFG, "utf8")) as {
+        events?: { question?: { sound?: boolean } }
+        sounds?: { question?: string }
+        volumes?: { question?: number }
+      }
+      if (cfg.events?.question?.sound === false) return { path: "", vol: 0 }
+      return {
+        path: cfg.sounds?.question ?? "/System/Library/Sounds/Tink.aiff",
+        vol: typeof cfg.volumes?.question === "number" ? cfg.volumes.question : 1,
+      }
+    } catch {
+      return { path: "/System/Library/Sounds/Tink.aiff", vol: 1 }
+    }
+  }
+  // Cross-window dedup + pending tracking. The desktop runs one plugin
+  // instance per project/window; the per-id claim file (same atomic helper
+  // as the peak banner) keeps one sound. The reminder arms only in the
+  // winner and is cancelled by question.replied / question.rejected.
+  const pendingQuestions = new Map<string, ReturnType<typeof setTimeout>>()
+  const onQuestionAsked = (p: any) => {
+    const id = typeof p?.id === "string" ? p.id : ""
+    if (!id) {
+      dbgQ(`ask BAD-SHAPE props=${JSON.stringify(p)?.slice(0, 200)}`)
+      return
+    }
+    const claimed = consumeClaim(`${QUESTION_CLAIM_PREFIX}${id}`, id)
+    dbgQ(`ask id=${id} claim=${claimed}`)
+    if (!claimed) return
+    const { path, vol } = questionSound()
+    dbgQ(`play path=${path} vol=${vol}`)
+    if (path) playSound(path, vol)
+    // Banners stay with the app's native Electron path (attributed to
+    // ai.opencode.desktop, click deep-links; the Settings > Notifications
+    // "Agent" toggle gates it). Script Editor banners were explicitly
+    // engineered away in September; notify.ts does not re-add them.
+    const t = setTimeout(() => {
+      pendingQuestions.delete(id)
+      const again = questionSound()
+      dbgQ(`remind id=${id} path=${again.path} vol=${again.vol}`)
+      if (again.path) playSound(again.path, again.vol)
+    }, QUESTION_REMIND_MS)
+    t.unref?.()
+    pendingQuestions.set(id, t)
+  }
+  const onQuestionSettled = (p: any) => {
+    const id =
+      typeof p?.requestID === "string" ? p.requestID : typeof p?.id === "string" ? p.id : ""
+    if (!id) return
+    const t = pendingQuestions.get(id)
+    if (t) {
+      clearTimeout(t)
+      pendingQuestions.delete(id)
+    }
+    try {
+      unlinkSync(`${QUESTION_CLAIM_PREFIX}${id}`)
+    } catch {}
+  }
+  // Startup sweep: claim files for asks that never settled (session killed)
+  // would otherwise accumulate; 48h is far past any real ask lifetime.
+  try {
+    for (const f of readdirSync(STATE_DIR)) {
+      if (!f.startsWith(".peak-banner-day-q-")) continue
+      const full = `${STATE_DIR}/${f}`
+      try {
+        if (Date.now() - statSync(full).mtimeMs > 48 * 3_600_000) unlinkSync(full)
+      } catch {}
+    }
+  } catch {}
 
   const lastPeakKey: Record<string, string> = {}
   // Occurrence key: for midnight-crossing windows the late-night hours
@@ -294,12 +409,34 @@ export const Notify: Plugin = async ({ client, directory }) => {
   // after 300ms, so auto-granted asks stay silent.
   // Reply failures (and only failures) log to DBG_LOG; a past silent
   // failure is why the dual reply-shape fallback exists.
-  if (readState().notifyAutogrant !== true) return {}
+  // Autogrant stays restart-gated (documented contract); the question
+  // sound must work regardless of it.
+  const autogrant = readState().notifyAutogrant === true
+  // Stage trace: rotate at 64KB, then mark the load.
+  try {
+    if (statSync(DBGQ).size > 65536) unlinkSync(DBGQ)
+  } catch {}
+  dbgQ(`load autogrant=${autogrant} peak-off=${readState().peakBannerDisabled === true}`)
 
   return {
     event: async (input) => {
       const e = input.event as { type?: string; properties?: any }
-      if (e?.type !== "permission.asked") return
+      const type = e?.type
+      // question.v2.* is the raw bus name in some builds; handle both.
+      if (type === "question.asked" || type === "question.v2.asked") {
+        onQuestionAsked(e.properties)
+        return
+      }
+      if (
+        type === "question.replied" ||
+        type === "question.v2.replied" ||
+        type === "question.rejected" ||
+        type === "question.v2.rejected"
+      ) {
+        onQuestionSettled(e.properties)
+        return
+      }
+      if (!autogrant || type !== "permission.asked") return
       const p = e.properties
       if (!p?.id || !p?.sessionID) {
         dbg("asked event missing id/sessionID: " + JSON.stringify(e).slice(0, 200))
