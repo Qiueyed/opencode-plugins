@@ -66,6 +66,8 @@ import {
   closeSync,
   openSync,
   readFileSync,
+  readdirSync,
+  statSync,
   unlinkSync,
   writeSync,
 } from "node:fs"
